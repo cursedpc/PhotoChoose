@@ -106,7 +106,8 @@ class VisionModelTests(unittest.TestCase):
         self.assertLessEqual(crop.shape[1], 68)
 
     def test_subject_evidence_tracks_primary_faces_and_eye_focus(self) -> None:
-        image = np.indices((300, 400)).sum(axis=0).astype(np.uint8)
+        grid = np.indices((300, 400)).sum(axis=0)
+        image = (((grid // 4) % 2) * 255).astype(np.uint8)
         image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
         faces = np.zeros((2, 15), dtype=np.float32)
         faces[0, :4] = (80, 70, 120, 120)
@@ -132,6 +133,31 @@ class VisionModelTests(unittest.TestCase):
                 for point in result.regions[0].eyes[0].landmarks
                 for coordinate in point
             )
+        )
+
+    def test_low_visibility_eye_regions_are_obscured_not_closed(self) -> None:
+        image = np.zeros((300, 400, 3), dtype=np.uint8)
+        faces = np.zeros((1, 15), dtype=np.float32)
+        faces[0, :4] = (80, 70, 120, 120)
+        faces[0, 14] = 0.98
+        analyzer = ModelSubjectAnalyzer(eye_analyzer=_FakeEyeAnalyzer())
+        analyzer.face_detector = _FakeFaceDetector(faces)
+
+        result = analyzer.analyze(image)
+
+        self.assertEqual(0, result.open_eye_count)
+        self.assertEqual(0, result.closed_eye_count)
+        self.assertEqual(0, result.uncertain_eye_count)
+        self.assertEqual(2, result.obscured_eye_count)
+        self.assertEqual(2, result.important_obscured_eye_count)
+        self.assertTrue(
+            all(eye.state == "obscured" for eye in result.regions[0].eyes)
+        )
+        self.assertTrue(
+            all(eye.visibility_reason for eye in result.regions[0].eyes)
+        )
+        self.assertTrue(
+            all(eye.openness_score is None for eye in result.regions[0].eyes)
         )
 
     def test_face_box_touching_edge_is_clipped_before_normalizing(self) -> None:

@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from photochoose.analysis_profiles import ANALYSIS_VERSION
 from photochoose.calibration_report import (
     MIN_SUGGESTION_SAMPLES,
     build_calibration_report,
@@ -72,7 +73,7 @@ class CalibrationReportTests(unittest.TestCase):
         self.assertIn("target corpus", report.suggestions[0].message)
 
         text = report.to_text()
-        self.assertIn("Safe / profiles-v1", text)
+        self.assertIn("Safe / {0}".format(ANALYSIS_VERSION), text)
         self.assertIn("global focus", text)
         self.assertIn("soft-", text)
         self.assertIn("max/group 1", text)

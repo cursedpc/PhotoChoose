@@ -45,6 +45,7 @@ class AnalysisResult:
     reasons: Tuple[str, ...]
     closed_eye_count: int = 0
     uncertain_eye_count: int = 0
+    obscured_eye_count: int = 0
     subject_model: str = "none"
     face_confidence: Optional[float] = None
     eye_open_score: Optional[float] = None
@@ -53,6 +54,7 @@ class AnalysisResult:
     important_open_eye_count: int = 0
     important_closed_eye_count: int = 0
     important_uncertain_eye_count: int = 0
+    important_obscured_eye_count: int = 0
     subject_regions: Tuple[FaceEvidence, ...] = ()
     object_count: int = 0
     object_model: str = "none"
@@ -192,6 +194,7 @@ class BaselineAnalyzer:
                 reasons=("Exact duplicate of {0}".format(original.filename),),
                 closed_eye_count=original_result.closed_eye_count,
                 uncertain_eye_count=original_result.uncertain_eye_count,
+                obscured_eye_count=original_result.obscured_eye_count,
                 subject_model=original_result.subject_model,
                 face_confidence=original_result.face_confidence,
                 eye_open_score=original_result.eye_open_score,
@@ -201,6 +204,9 @@ class BaselineAnalyzer:
                 important_closed_eye_count=original_result.important_closed_eye_count,
                 important_uncertain_eye_count=(
                     original_result.important_uncertain_eye_count
+                ),
+                important_obscured_eye_count=(
+                    original_result.important_obscured_eye_count
                 ),
                 subject_regions=original_result.subject_regions,
                 object_count=original_result.object_count,
@@ -228,6 +234,7 @@ class BaselineAnalyzer:
             face_count, eye_count, subject_focus = self._analyze_faces(gray)
             closed_eye_count = 0
             uncertain_eye_count = max(0, face_count * 2 - eye_count)
+            obscured_eye_count = 0
             subject_model = "haar-fallback"
             face_confidence = None
             eye_open_score = None
@@ -236,12 +243,14 @@ class BaselineAnalyzer:
             important_open_eye_count = eye_count
             important_closed_eye_count = closed_eye_count
             important_uncertain_eye_count = uncertain_eye_count
+            important_obscured_eye_count = 0
             subject_regions = ()
         else:
             face_count = subject_result.face_count
             eye_count = subject_result.open_eye_count
             closed_eye_count = subject_result.closed_eye_count
             uncertain_eye_count = subject_result.uncertain_eye_count
+            obscured_eye_count = subject_result.obscured_eye_count
             subject_focus = subject_result.subject_focus_score
             subject_model = subject_result.model_name
             face_confidence = subject_result.face_confidence
@@ -251,6 +260,7 @@ class BaselineAnalyzer:
             important_open_eye_count = subject_result.important_open_eye_count
             important_closed_eye_count = subject_result.important_closed_eye_count
             important_uncertain_eye_count = subject_result.important_uncertain_eye_count
+            important_obscured_eye_count = subject_result.important_obscured_eye_count
             subject_regions = subject_result.regions
 
         object_result = self.object_analyzer.analyze(image)
@@ -274,6 +284,8 @@ class BaselineAnalyzer:
             face_confidence,
             eye_open_score,
             self.profile,
+            obscured_eye_count=obscured_eye_count,
+            important_obscured_eye_count=important_obscured_eye_count,
         )
         return AnalysisResult(
             decision=decision,
@@ -289,6 +301,7 @@ class BaselineAnalyzer:
             reasons=reasons,
             closed_eye_count=closed_eye_count,
             uncertain_eye_count=uncertain_eye_count,
+            obscured_eye_count=obscured_eye_count,
             subject_model=subject_model,
             face_confidence=(
                 round(face_confidence, 4) if face_confidence is not None else None
@@ -303,6 +316,7 @@ class BaselineAnalyzer:
             important_open_eye_count=important_open_eye_count,
             important_closed_eye_count=important_closed_eye_count,
             important_uncertain_eye_count=important_uncertain_eye_count,
+            important_obscured_eye_count=important_obscured_eye_count,
             subject_regions=subject_regions,
             object_count=object_result.object_count,
             object_model=object_result.model_name,
@@ -552,6 +566,11 @@ class BaselineAnalyzer:
             if result.important_face_count
             else result.closed_eye_count
         )
+        important_obscured_eye_count = (
+            result.important_obscured_eye_count
+            if result.important_face_count
+            else result.obscured_eye_count
+        )
         if important_face_count:
             subject = min(
                 1.0,
@@ -566,11 +585,15 @@ class BaselineAnalyzer:
             closed_eye_penalty = (
                 min(1.0, important_closed_eye_count / expected_eyes) * 20.0
             )
+            obscured_eye_penalty = (
+                min(1.0, important_obscured_eye_count / expected_eyes) * 5.0
+            )
         else:
             subject = focus
             eyes = 0.5
             eye_focus = focus
             closed_eye_penalty = 0.0
+            obscured_eye_penalty = 0.0
         review_penalty = 10.0 if decision == Decision.REVIEW else 0.0
         object_adjustment = 0.0
         if result.primary_subject_focus_score is not None:
@@ -587,6 +610,7 @@ class BaselineAnalyzer:
             + eye_focus * 15.0
             - review_penalty
             - closed_eye_penalty
+            - obscured_eye_penalty
             + object_adjustment,
             2,
         )
@@ -624,6 +648,8 @@ class BaselineAnalyzer:
         face_confidence: Optional[float] = None,
         eye_open_score: Optional[float] = None,
         profile: AnalysisProfile = SAFE_PROFILE,
+        obscured_eye_count: int = 0,
+        important_obscured_eye_count: Optional[int] = None,
     ) -> Tuple[Decision, Tuple[str, ...]]:
         if clipped_dark >= 0.98:
             return Decision.REVIEW, ("Almost entirely black",)
@@ -663,6 +689,11 @@ class BaselineAnalyzer:
             if important_uncertain_eye_count is None
             else important_uncertain_eye_count
         )
+        considered_obscured_eyes = (
+            obscured_eye_count
+            if important_obscured_eye_count is None
+            else important_obscured_eye_count
+        )
         if considered_faces:
             if (
                 subject_focus is not None
@@ -682,9 +713,20 @@ class BaselineAnalyzer:
                         "s" if considered_closed_eyes == 1 else "",
                     )
                 )
+            if considered_obscured_eyes:
+                reasons.append(
+                    "{0} important eye{1} appear{2} obscured or unresolved".format(
+                        considered_obscured_eyes,
+                        "" if considered_obscured_eyes == 1 else "s",
+                        "s" if considered_obscured_eyes == 1 else "",
+                    )
+                )
             if (
                 considered_uncertain_eyes
-                or considered_open_eyes + considered_closed_eyes < considered_faces * 2
+                or considered_open_eyes
+                + considered_closed_eyes
+                + considered_obscured_eyes
+                < considered_faces * 2
             ):
                 reasons.append("Eyes are not confidently visible on every important face")
             elif (

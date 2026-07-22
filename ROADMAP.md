@@ -169,7 +169,8 @@ Tier 1 reduces the number of expensive model evaluations and should run on all p
 - **Implemented:** conservative Review evidence from confidently detected primary-object
   softness and modest general-subject focus weighting in Best ranking. This signal alone
   never automatically rejects a unique photograph; saliency-only evidence is ranking-only.
-- Add explicit obscured-eye separation beyond the current uncertain state.
+- **Implemented:** explicit obscured/unresolved eye visibility separated from eyelid
+  geometry, with conservative Review handling and inspectable visibility reasons.
 
 **Exit:** portrait and event photographs receive reliable, explainable subject-aware quality signals on macOS CPU.
 
@@ -304,8 +305,11 @@ distance between automatic selections so the configured maximum does not fill wi
 identical frames.
 
 Real threshold tuning and performance validation are deliberately deferred until representative
-large shoots can run on the target machine. The next implementation slice can improve obscured
-eye/glasses handling and prepare Windows/OpenVINO validation without claiming corpus calibration.
+large shoots can run on the target machine. Eye visibility is now separated from eyelid geometry:
+small, dark/covered, glare-clipped, or low-detail eye regions become explicit obscured/unresolved
+evidence rather than closed-eye claims. Older analyses are marked stale under the new version
+without changing decisions. The next implementation slice can prepare Windows/OpenVINO validation
+without claiming corpus calibration.
 
 ## Current implementation status
 

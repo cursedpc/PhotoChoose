@@ -14,6 +14,7 @@ EYE_COLORS: Dict[str, QColor] = {
     "open": QColor("#35d07f"),
     "closed": QColor("#ff5c62"),
     "uncertain": QColor("#ffbf47"),
+    "obscured": QColor("#c084fc"),
 }
 OBJECT_COLORS: Dict[str, QColor] = {
     "primary": QColor("#b084ff"),

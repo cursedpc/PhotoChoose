@@ -15,6 +15,7 @@ from PySide6.QtCore import QItemSelectionModel, Qt  # noqa: E402
 from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 
+from photochoose.analysis_profiles import ANALYSIS_VERSION  # noqa: E402
 from photochoose.app import create_application  # noqa: E402
 from photochoose.fullscreen_viewer import FullscreenPhotoDialog  # noqa: E402
 from photochoose.models import Decision, PhotoView  # noqa: E402
@@ -79,7 +80,10 @@ class GuiSmokeTests(unittest.TestCase):
             self.assertEqual(Qt.CustomContextMenu, window.project_list.contextMenuPolicy())
             self.assertEqual(Qt.CustomContextMenu, window.photo_grid.contextMenuPolicy())
             self.assertIn("frame-0.bmp", window.inspector.details_label.text())
-            self.assertIn("Profile: Safe / profiles-v1", window.inspector.details_label.text())
+            self.assertIn(
+                "Profile: Safe / {0}".format(ANALYSIS_VERSION),
+                window.inspector.details_label.text(),
+            )
             self.assertIn(
                 "Model: yunet+face-mesh-litert",
                 window.inspector.details_label.text(),

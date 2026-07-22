@@ -86,12 +86,19 @@ a promise to fill a group with redundant frames. Explicit manual Best choices ar
 preserved and count toward the selected maximum.
 
 The analysis intentionally sends uncertain soft images, confidently detected closed eyes,
-uncertain eye states, and very soft primary detected objects to `Review`; it does not reject
-a unique photograph solely from those model signals. Within a burst, open eyes and sharper
+uncertain or obscured/unresolved eye states, and very soft primary detected objects to `Review`;
+it does not reject a unique photograph solely from those model signals. Within a burst, open
+eyes and sharper
 primary subjects improve ranking. The current face models work best on sufficiently large,
 near-frontal faces, and the general detector recognizes only its COCO-80 classes. Heavily
 obscured eyes, very small faces, expressions, uncatalogued subjects, and the initial profile
 thresholds still need photographer-corpus calibration.
+
+Eye visibility is handled separately from eyelid geometry. If an eye region is too small,
+dark/covered, glare-clipped, or lacks sufficient local contrast/detail, PhotoChoose stores an
+**Obscured** state and its reason instead of trusting an open/closed estimate. The purple overlay
+and inspector expose this evidence. These conservative visibility heuristics still require
+large-shoot validation on the target machine, especially for glasses and profile faces.
 
 Object class names are confidence-qualified model guesses, not authoritative metadata. A
 wrong class name can still surround the correct subject and provide a useful regional-focus
