@@ -150,8 +150,11 @@ class SelectionInspector(QFrame):
                 photo.best_source,
             ),
             "Files: {0}".format(photo.file_summary),
-            "Analysis: {0}    ·    Focus: {1}    ·    Brightness: {2}".format(
+            "Analysis: {0}    ·    Profile: {1} / {2}    ·    Focus: {3}    ·    "
+            "Brightness: {4}".format(
                 photo.analysis_status,
+                (photo.analysis_profile or "—").title(),
+                photo.analysis_version or "—",
                 self._number(photo.focus_score),
                 self._percentage(photo.brightness),
             ),

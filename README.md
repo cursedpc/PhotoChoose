@@ -65,12 +65,19 @@ PhotoChoose is a private, local-first desktop application for professional photo
 
 Manual decisions are protected: after you explicitly classify a photograph, subsequent analysis runs update its metrics and reasons but do not overwrite your choice.
 
+Each project has a visible **Safe**, **Balanced**, or **Strict** analysis profile. Safe is
+the conservative default. Changing the profile marks existing results as stale but does not
+silently reclassify anything; click **Analyze and separate** when you are ready to apply the
+new profile. Every result stores its profile and analysis version for later inspection.
+Manual decision and Best changes are recorded only in the local SQLite database as private
+calibration evidence; photographs and calibration history are never uploaded.
+
 The analysis intentionally sends uncertain soft images, confidently detected closed eyes,
 uncertain eye states, and very soft primary detected objects to `Review`; it does not reject
 a unique photograph solely from those model signals. Within a burst, open eyes and sharper
 primary subjects improve ranking. The current face models work best on sufficiently large,
-near-frontal faces, and the general detector recognizes only its COCO-80 classes. Profiles,
-heavily obscured eyes, very small faces, expressions, uncatalogued subjects, and all
+near-frontal faces, and the general detector recognizes only its COCO-80 classes. Heavily
+obscured eyes, very small faces, expressions, uncatalogued subjects, and the initial profile
 thresholds still need photographer-corpus calibration.
 
 Object class names are confidence-qualified model guesses, not authoritative metadata. A

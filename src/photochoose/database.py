@@ -6,6 +6,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from photochoose.analysis_profiles import ANALYSIS_VERSION, get_analysis_profile
 from photochoose.assets import discover_logical_assets
 from photochoose.models import (
     Decision,
@@ -46,6 +47,8 @@ class PhotoDatabase:
                     name TEXT NOT NULL,
                     root_path TEXT NOT NULL UNIQUE,
                     is_open INTEGER NOT NULL DEFAULT 1 CHECK (is_open IN (0, 1)),
+                    analysis_profile TEXT NOT NULL DEFAULT 'safe'
+                        CHECK (analysis_profile IN ('safe', 'balanced', 'strict')),
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     last_opened_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
@@ -63,6 +66,8 @@ class PhotoDatabase:
                     is_best INTEGER NOT NULL DEFAULT 0 CHECK (is_best IN (0, 1)),
                     best_source TEXT NOT NULL DEFAULT 'none',
                     analysis_status TEXT NOT NULL DEFAULT 'pending',
+                    analysis_profile TEXT,
+                    analysis_version TEXT,
                     focus_score REAL,
                     brightness REAL,
                     clipped_dark REAL,
@@ -110,6 +115,22 @@ class PhotoDatabase:
                     ON photos(project_id, decision);
                 CREATE INDEX IF NOT EXISTS photos_project_best
                     ON photos(project_id, is_best);
+
+                CREATE TABLE IF NOT EXISTS manual_overrides (
+                    id INTEGER PRIMARY KEY,
+                    photo_id INTEGER NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+                    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                    action_type TEXT NOT NULL CHECK (action_type IN ('decision', 'best')),
+                    previous_value TEXT NOT NULL,
+                    previous_source TEXT NOT NULL,
+                    new_value TEXT NOT NULL,
+                    analysis_profile TEXT,
+                    analysis_version TEXT,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE INDEX IF NOT EXISTS manual_overrides_project_created
+                    ON manual_overrides(project_id, created_at);
                 """
             )
             self._add_missing_project_columns(connection)
@@ -123,6 +144,11 @@ class PhotoDatabase:
         }
         if "is_open" not in existing:
             connection.execute("ALTER TABLE projects ADD COLUMN is_open INTEGER NOT NULL DEFAULT 1")
+        if "analysis_profile" not in existing:
+            connection.execute(
+                "ALTER TABLE projects ADD COLUMN analysis_profile "
+                "TEXT NOT NULL DEFAULT 'safe'"
+            )
 
     @staticmethod
     def _add_missing_photo_columns(connection: sqlite3.Connection) -> None:
@@ -134,6 +160,8 @@ class PhotoDatabase:
         definitions = {
             "decision_source": "TEXT NOT NULL DEFAULT 'none'",
             "analysis_status": "TEXT NOT NULL DEFAULT 'pending'",
+            "analysis_profile": "TEXT",
+            "analysis_version": "TEXT",
             "best_source": "TEXT NOT NULL DEFAULT 'none'",
             "focus_score": "REAL",
             "brightness": "REAL",
@@ -197,7 +225,7 @@ class PhotoDatabase:
                 (root.name or str(root), str(root)),
             )
             row = connection.execute(
-                "SELECT id, name, root_path FROM projects WHERE root_path = ?",
+                "SELECT id, name, root_path, analysis_profile FROM projects WHERE root_path = ?",
                 (str(root),),
             ).fetchone()
             connection.commit()
@@ -207,7 +235,7 @@ class PhotoDatabase:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
-                SELECT id, name, root_path
+                SELECT id, name, root_path, analysis_profile
                 FROM projects
                 WHERE is_open = 1
                 ORDER BY last_opened_at DESC, name COLLATE NOCASE
@@ -218,7 +246,7 @@ class PhotoDatabase:
     def get_project(self, project_id: int) -> Optional[Project]:
         with closing(self._connect()) as connection:
             row = connection.execute(
-                "SELECT id, name, root_path FROM projects WHERE id = ?",
+                "SELECT id, name, root_path, analysis_profile FROM projects WHERE id = ?",
                 (project_id,),
             ).fetchone()
         return self._project_from_row(row) if row else None
@@ -342,6 +370,14 @@ class PhotoDatabase:
                             WHEN photos.size_bytes != excluded.size_bytes
                               OR photos.modified_ns != excluded.modified_ns
                             THEN 'pending' ELSE photos.analysis_status END,
+                        analysis_profile = CASE
+                            WHEN photos.size_bytes != excluded.size_bytes
+                              OR photos.modified_ns != excluded.modified_ns
+                            THEN NULL ELSE photos.analysis_profile END,
+                        analysis_version = CASE
+                            WHEN photos.size_bytes != excluded.size_bytes
+                              OR photos.modified_ns != excluded.modified_ns
+                            THEN NULL ELSE photos.analysis_version END,
                         focus_score = CASE
                             WHEN photos.size_bytes != excluded.size_bytes
                               OR photos.modified_ns != excluded.modified_ns
@@ -543,7 +579,8 @@ class PhotoDatabase:
             rows = connection.execute(
                 """
                 SELECT p.id, p.project_id, p.relative_path, p.decision, p.is_best,
-                       p.decision_source, p.analysis_status, p.focus_score,
+                       p.decision_source, p.analysis_status, p.analysis_profile,
+                       p.analysis_version, p.focus_score,
                        p.brightness, p.clipped_dark, p.clipped_bright,
                        p.auto_reasons, p.duplicate_of_id, p.best_source,
                        p.perceptual_hash, p.face_count, p.eye_count,
@@ -574,6 +611,34 @@ class PhotoDatabase:
         placeholders = ",".join("?" for _ in photo_ids)
         with closing(self._connect()) as connection:
             source = "none" if decision == Decision.UNREVIEWED else "manual"
+            rows = connection.execute(
+                """
+                SELECT id, project_id, decision, decision_source,
+                       analysis_profile, analysis_version
+                FROM photos WHERE id IN ({0})
+                """.format(placeholders),
+                list(photo_ids),
+            ).fetchall()
+            for row in rows:
+                if row["decision"] == decision.value and row["decision_source"] == source:
+                    continue
+                connection.execute(
+                    """
+                    INSERT INTO manual_overrides(
+                        photo_id, project_id, action_type, previous_value,
+                        previous_source, new_value, analysis_profile, analysis_version
+                    ) VALUES (?, ?, 'decision', ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        row["id"],
+                        row["project_id"],
+                        row["decision"],
+                        row["decision_source"],
+                        decision.value,
+                        row["analysis_profile"],
+                        row["analysis_version"],
+                    ),
+                )
             connection.execute(
                 """
                 UPDATE photos SET decision = ?, decision_source = ?
@@ -595,6 +660,8 @@ class PhotoDatabase:
         reasons: Sequence[str],
         duplicate_of_id: Optional[int],
         status: str = "complete",
+        analysis_profile: str = "safe",
+        analysis_version: str = ANALYSIS_VERSION,
     ) -> None:
         """Persist analysis without overwriting an explicit manual decision."""
 
@@ -603,6 +670,8 @@ class PhotoDatabase:
                 """
                 UPDATE photos SET
                     analysis_status = ?,
+                    analysis_profile = ?,
+                    analysis_version = ?,
                     focus_score = ?,
                     brightness = ?,
                     clipped_dark = ?,
@@ -622,6 +691,8 @@ class PhotoDatabase:
                 """,
                 (
                     status,
+                    get_analysis_profile(analysis_profile).key,
+                    analysis_version,
                     focus_score,
                     brightness,
                     clipped_dark,
@@ -640,6 +711,32 @@ class PhotoDatabase:
             return
         placeholders = ",".join("?" for _ in photo_ids)
         with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT id, project_id, is_best, best_source,
+                       analysis_profile, analysis_version
+                FROM photos WHERE id IN ({0})
+                """.format(placeholders),
+                list(photo_ids),
+            ).fetchall()
+            for row in rows:
+                connection.execute(
+                    """
+                    INSERT INTO manual_overrides(
+                        photo_id, project_id, action_type, previous_value,
+                        previous_source, new_value, analysis_profile, analysis_version
+                    ) VALUES (?, ?, 'best', ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        row["id"],
+                        row["project_id"],
+                        "on" if row["is_best"] else "off",
+                        row["best_source"],
+                        "off" if row["is_best"] else "on",
+                        row["analysis_profile"],
+                        row["analysis_version"],
+                    ),
+                )
             connection.execute(
                 """
                 UPDATE photos
@@ -650,6 +747,56 @@ class PhotoDatabase:
                 list(photo_ids),
             )
             connection.commit()
+
+    def set_project_analysis_profile(self, project_id: int, profile: str) -> None:
+        """Select a profile without silently re-running or replacing old decisions."""
+
+        selected = get_analysis_profile(profile)
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT analysis_profile FROM projects WHERE id = ?", (project_id,)
+            ).fetchone()
+            if row is None:
+                raise ValueError("Unknown project id: {0}".format(project_id))
+            if row["analysis_profile"] == selected.key:
+                return
+            connection.execute(
+                "UPDATE projects SET analysis_profile = ? WHERE id = ?",
+                (selected.key, project_id),
+            )
+            connection.execute(
+                """
+                UPDATE photos SET analysis_status = 'stale'
+                WHERE project_id = ? AND analysis_status != 'pending'
+                """,
+                (project_id,),
+            )
+            connection.commit()
+
+    def count_stale_analysis(self, project_id: int) -> int:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) AS total FROM photos "
+                "WHERE project_id = ? AND analysis_status = 'stale'",
+                (project_id,),
+            ).fetchone()
+        return int(row["total"])
+
+    def list_manual_overrides(self, project_id: int) -> List[Dict[str, object]]:
+        """Return local calibration evidence without reading or exporting image data."""
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT id, photo_id, action_type, previous_value, previous_source,
+                       new_value, analysis_profile, analysis_version, created_at
+                FROM manual_overrides
+                WHERE project_id = ?
+                ORDER BY id
+                """,
+                (project_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def apply_subject_analysis(
         self,
@@ -823,7 +970,12 @@ class PhotoDatabase:
 
     @staticmethod
     def _project_from_row(row: sqlite3.Row) -> Project:
-        return Project(id=row["id"], name=row["name"], root_path=row["root_path"])
+        return Project(
+            id=row["id"],
+            name=row["name"],
+            root_path=row["root_path"],
+            analysis_profile=row["analysis_profile"],
+        )
 
     @staticmethod
     def _legacy_asset_key(relative_path: str) -> str:
@@ -850,6 +1002,8 @@ class PhotoDatabase:
             is_best=bool(row["is_best"]),
             decision_source=row["decision_source"],
             analysis_status=row["analysis_status"],
+            analysis_profile=row["analysis_profile"],
+            analysis_version=row["analysis_version"],
             focus_score=row["focus_score"],
             brightness=row["brightness"],
             clipped_dark=row["clipped_dark"],

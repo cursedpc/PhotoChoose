@@ -15,8 +15,10 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
+    QComboBox,
     QFileDialog,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QListView,
     QListWidget,
@@ -31,6 +33,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from photochoose.analysis_profiles import ANALYSIS_PROFILES, ANALYSIS_VERSION
 from photochoose.analyzer import BaselineAnalyzer
 from photochoose.comparison_viewer import GroupComparisonDialog
 from photochoose.database import PhotoDatabase
@@ -78,14 +81,17 @@ class _AnalysisSignals(QObject):
 
 
 class _AnalysisTask(QRunnable):
-    def __init__(self, database: PhotoDatabase, project_id: int) -> None:
+    def __init__(
+        self, database: PhotoDatabase, project_id: int, analysis_profile: str
+    ) -> None:
         super().__init__()
         self.database = database
         self.project_id = project_id
+        self.analysis_profile = analysis_profile
         self.signals = _AnalysisSignals()
 
     def run(self) -> None:
-        analyzer = BaselineAnalyzer(self.database)
+        analyzer = BaselineAnalyzer(self.database, self.analysis_profile)
         try:
             totals = analyzer.analyze_project(
                 self.project_id,
@@ -213,9 +219,29 @@ class MainWindow(QMainWindow):
         workspace = QWidget()
         layout = QVBoxLayout(workspace)
 
+        title_row = QHBoxLayout()
         self.project_title = QLabel("No project selected")
         self.project_title.setStyleSheet("font-size: 20px; font-weight: 600;")
-        layout.addWidget(self.project_title)
+        title_row.addWidget(self.project_title)
+        title_row.addStretch(1)
+        title_row.addWidget(QLabel("Analysis profile:"))
+        self.analysis_profile_combo = QComboBox()
+        for profile in ANALYSIS_PROFILES:
+            self.analysis_profile_combo.addItem(profile.label, profile.key)
+            self.analysis_profile_combo.setItemData(
+                self.analysis_profile_combo.count() - 1,
+                profile.description,
+                Qt.ToolTipRole,
+            )
+        self.analysis_profile_combo.setEnabled(False)
+        self.analysis_profile_combo.currentIndexChanged.connect(
+            self._analysis_profile_changed
+        )
+        title_row.addWidget(self.analysis_profile_combo)
+        self.analysis_profile_status = QLabel("Safe default")
+        self.analysis_profile_status.setStyleSheet("color: #808792;")
+        title_row.addWidget(self.analysis_profile_status)
+        layout.addLayout(title_row)
 
         self.project_path = QLabel("")
         self.project_path.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -348,8 +374,50 @@ class MainWindow(QMainWindow):
         self.current_project = project
         self.project_title.setText(project.name)
         self.project_path.setText(project.root_path)
+        self._update_analysis_profile_controls()
         self._update_project_action_buttons()
         self._refresh_photos()
+
+    @Slot(int)
+    def _analysis_profile_changed(self, index: int) -> None:
+        if self.current_project is None or index < 0:
+            return
+        profile = self.analysis_profile_combo.itemData(index)
+        if not profile or profile == self.current_project.analysis_profile:
+            return
+        self.database.set_project_analysis_profile(self.current_project.id, profile)
+        updated = self.database.get_project(self.current_project.id)
+        if updated is None:
+            return
+        self.current_project = updated
+        self._update_analysis_profile_controls()
+        self._refresh_photos()
+        self.statusBar().showMessage(
+            "{0} profile selected · click Analyze and separate to apply it".format(
+                self.analysis_profile_combo.currentText()
+            ),
+            10000,
+        )
+
+    def _update_analysis_profile_controls(self) -> None:
+        if self.current_project is None:
+            return
+        index = self.analysis_profile_combo.findData(
+            self.current_project.analysis_profile
+        )
+        self.analysis_profile_combo.blockSignals(True)
+        if index >= 0:
+            self.analysis_profile_combo.setCurrentIndex(index)
+        self.analysis_profile_combo.blockSignals(False)
+        stale_count = self.database.count_stale_analysis(self.current_project.id)
+        if stale_count:
+            self.analysis_profile_status.setText(
+                "Reanalysis required · {0} stale".format(stale_count)
+            )
+            self.analysis_profile_status.setStyleSheet("color: #b26a00; font-weight: 600;")
+        else:
+            self.analysis_profile_status.setText(ANALYSIS_VERSION)
+            self.analysis_profile_status.setStyleSheet("color: #808792;")
 
     @Slot(QPoint)
     def _show_project_context_menu(self, position: QPoint) -> None:
@@ -440,7 +508,7 @@ class MainWindow(QMainWindow):
         self.busy_projects.add(project.id)
         self._update_project_action_buttons()
         self.statusBar().showMessage("Starting local analysis of {0}…".format(project.name))
-        task = _AnalysisTask(self.database, project.id)
+        task = _AnalysisTask(self.database, project.id, project.analysis_profile)
         task.signals.progress.connect(self._analysis_progress)
         task.signals.finished.connect(self._analysis_finished)
         task.signals.failed.connect(self._analysis_failed)
@@ -457,6 +525,7 @@ class MainWindow(QMainWindow):
         if self.current_project and self.current_project.id == project_id:
             self._update_project_action_buttons()
             self._refresh_photos()
+            self._update_analysis_profile_controls()
         self.statusBar().showMessage(
             "Analysis complete · Keep {0} · Review {1} · Reject {2}".format(
                 totals.get(Decision.KEEP.value, 0),
@@ -696,11 +765,15 @@ class MainWindow(QMainWindow):
         self.analyze_button.setEnabled(enabled)
         self.export_button.setEnabled(enabled)
         self.close_project_button.setEnabled(enabled)
+        self.analysis_profile_combo.setEnabled(enabled)
 
     def _clear_current_project(self) -> None:
         self.current_project = None
         self.project_title.setText("No project selected")
         self.project_path.setText("")
+        self.analysis_profile_combo.setEnabled(False)
+        self.analysis_profile_status.setText("Safe default")
+        self.analysis_profile_status.setStyleSheet("color: #808792;")
         self.photo_model.clear()
         self.inspector.set_photos([], 0)
         for index, view in enumerate(VIEWS):

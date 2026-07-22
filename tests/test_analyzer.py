@@ -8,6 +8,12 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from photochoose.analysis_profiles import (
+    ANALYSIS_VERSION,
+    BALANCED_PROFILE,
+    SAFE_PROFILE,
+    STRICT_PROFILE,
+)
 from photochoose.analyzer import AnalysisResult, BaselineAnalyzer
 from photochoose.database import PhotoDatabase
 from photochoose.models import Decision, PhotoView
@@ -151,6 +157,59 @@ class BaselineAnalyzerTests(unittest.TestCase):
         self.assertEqual(Decision.REVIEW, decision)
         self.assertTrue(any("face appears soft" in reason for reason in reasons))
         self.assertTrue(any("Eyes are not confidently visible" in reason for reason in reasons))
+
+    def test_profiles_apply_increasingly_conservative_thresholds(self) -> None:
+        common = dict(
+            focus_score=35.0,
+            brightness=0.5,
+            clipped_dark=0.0,
+            clipped_bright=0.0,
+            face_count=0,
+            eye_count=0,
+            subject_focus=None,
+        )
+
+        safe, _safe_reasons = BaselineAnalyzer._classify(
+            profile=SAFE_PROFILE, **common
+        )
+        balanced, _balanced_reasons = BaselineAnalyzer._classify(
+            profile=BALANCED_PROFILE, **common
+        )
+        strict, _strict_reasons = BaselineAnalyzer._classify(
+            profile=STRICT_PROFILE, **common
+        )
+
+        self.assertEqual(Decision.KEEP, safe)
+        self.assertEqual(Decision.REVIEW, balanced)
+        self.assertEqual(Decision.REVIEW, strict)
+
+    def test_unique_extreme_exposure_is_reviewed_under_every_profile(self) -> None:
+        for profile in (SAFE_PROFILE, BALANCED_PROFILE, STRICT_PROFILE):
+            decision, reasons = BaselineAnalyzer._classify(
+                focus_score=0.0,
+                brightness=0.0,
+                clipped_dark=1.0,
+                clipped_bright=0.0,
+                face_count=0,
+                eye_count=0,
+                subject_focus=None,
+                profile=profile,
+            )
+            self.assertEqual(Decision.REVIEW, decision)
+            self.assertIn("Almost entirely black", reasons)
+
+    def test_analyzer_persists_profile_and_analysis_version(self) -> None:
+        grid = np.indices((256, 256)).sum(axis=0)
+        image = cv2.cvtColor((((grid // 8) % 2) * 255).astype(np.uint8), cv2.COLOR_GRAY2BGR)
+        (self.shoot / "one.jpg").write_bytes(self._jpeg_bytes(image))
+        project = self.database.add_project(self.shoot)
+        self.database.scan_project(project.id)
+
+        BaselineAnalyzer(self.database, STRICT_PROFILE).analyze_project(project.id)
+
+        photo = self.database.list_photos(project.id, PhotoView.ALL)[0]
+        self.assertEqual("strict", photo.analysis_profile)
+        self.assertEqual(ANALYSIS_VERSION, photo.analysis_version)
 
     def test_confidently_closed_eye_is_reviewed_and_lowers_best_score(self) -> None:
         decision, reasons = BaselineAnalyzer._classify(
