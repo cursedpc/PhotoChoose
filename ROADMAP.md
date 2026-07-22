@@ -156,14 +156,19 @@ Tier 1 reduces the number of expensive model evaluations and should run on all p
   remain visible but do not spoil ranking of the main subjects.
 - **Implemented:** toggleable evidence overlays in the grid, fullscreen viewer, and
   side-by-side comparison, including face importance and eye state/focus.
-- Add a compact local detector for people and primary non-human subjects such as animals,
-  vehicles, products, documents, flowers, and prominent architectural elements.
-- Rank detected objects as primary, supporting, or background evidence using size,
-  position, confidence, and overlap with detected faces.
-- Measure sharpness inside each important object region, persist the evidence, and display
-  it through the existing analysis overlay.
-- Use general-subject sharpness in separation and Best ranking conservatively: a unique
-  photograph must not be rejected solely because object importance is uncertain.
+- **Implemented:** bundled Apache-2.0 NanoDet ONNX detection for people and its common
+  COCO-80 animals, vehicles, furnishings, food, sports, and product classes, running through
+  the local OpenCV CPU path with no runtime downloads.
+- **Implemented:** model-free spectral saliency for an unlabeled prominent region when no
+  known object class is found. Add richer categories later for documents, flowers, and
+  architectural elements that COCO-80 does not name.
+- **Implemented:** primary, supporting, and background object importance based on size,
+  position, and detector confidence.
+- **Implemented:** per-object regional sharpness, normalized bounds, confidence, label, and
+  importance persisted in SQLite and displayed through the existing analysis overlay.
+- **Implemented:** conservative Review evidence from confidently detected primary-object
+  softness and modest general-subject focus weighting in Best ranking. This signal alone
+  never automatically rejects a unique photograph; saliency-only evidence is ranking-only.
 - Add explicit obscured-eye separation beyond the current uncertain state.
 
 **Exit:** portrait and event photographs receive reliable, explainable subject-aware quality signals on macOS CPU.
@@ -264,7 +269,7 @@ The first useful build should deliberately stay small:
 
 This slice validates the workflow and safety model before adding face analysis, RAW support, or GPU acceleration.
 
-## Next implementation slice
+## Completed implementation slice — general subjects
 
 The next active slice extends subject-aware analysis beyond portraits:
 
@@ -280,6 +285,17 @@ The next active slice extends subject-aware analysis beyond portraits:
 
 **Exit:** non-portrait photographs receive inspectable primary-subject focus evidence on
 the current CPU backend without weakening PhotoChoose's false-reject protections.
+
+## Next implementation slice
+
+The next active slice is photographer calibration and controlled scoring:
+
+1. Add a small settings panel for separation strictness while keeping a safe default.
+2. Store the threshold/profile version with each analysis so rescans remain explainable.
+3. Build a private corpus report comparing recommendations with manual overrides.
+4. Tune global, face, eye, and object-focus thresholds from real shoots rather than isolated
+   examples.
+5. Add controls for Best-shot count per group and protect visually distinct alternatives.
 
 ## Current implementation status
 

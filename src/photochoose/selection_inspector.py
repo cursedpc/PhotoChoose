@@ -173,6 +173,13 @@ class SelectionInspector(QFrame):
                 photo.similarity_group or "—",
                 self._number(photo.best_score),
             ),
+            "Objects: {0}    ·    Primary objects: {1}    ·    Subject focus: {2}    ·    "
+            "Object model: {3}".format(
+                photo.object_count,
+                photo.primary_object_count or "—",
+                self._number(photo.primary_subject_focus_score),
+                photo.object_model,
+            ),
         ]
         metadata = self._metadata_summary(photo)
         if metadata:

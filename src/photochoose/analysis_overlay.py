@@ -12,12 +12,17 @@ EYE_COLORS: Dict[str, QColor] = {
     "closed": QColor("#ff5c62"),
     "uncertain": QColor("#ffbf47"),
 }
+OBJECT_COLORS: Dict[str, QColor] = {
+    "primary": QColor("#b084ff"),
+    "supporting": QColor("#55c2c8"),
+    "background": QColor("#9aa1aa"),
+}
 
 
 def render_analysis_overlay(image: QImage, photo: Photo) -> QImage:
     """Return a copy of an image with its stored local-analysis evidence painted."""
 
-    if image.isNull() or not photo.subject_regions:
+    if image.isNull() or not (photo.subject_regions or photo.subject_objects):
         return image
     output = image.convertToFormat(QImage.Format_ARGB32_Premultiplied)
     painter = QPainter(output)
@@ -40,10 +45,47 @@ def paint_analysis_evidence(
 ) -> None:
     """Paint normalized face and eye evidence into an image's displayed rectangle."""
 
-    if not photo.subject_regions or image_rect.isEmpty():
+    if not (photo.subject_regions or photo.subject_objects) or image_rect.isEmpty():
         return
     painter.save()
     painter.setClipRect(image_rect)
+    for item in photo.subject_objects:
+        x, y, width, height = item.bounds
+        object_rect = QRectF(
+            image_rect.left() + x * image_rect.width(),
+            image_rect.top() + y * image_rect.height(),
+            width * image_rect.width(),
+            height * image_rect.height(),
+        )
+        object_scale = min(object_rect.width(), object_rect.height())
+        line_width = max(0.85, min(2.6, object_scale / 110.0))
+        color = OBJECT_COLORS.get(item.importance, OBJECT_COLORS["background"])
+        pen = QPen(color, line_width)
+        if item.importance == "background":
+            pen.setStyle(Qt.DashLine)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRoundedRect(object_rect, 4.0, 4.0)
+        if show_labels and object_scale >= 48.0:
+            font = painter.font()
+            font.setPixelSize(max(8, min(12, round(object_scale / 18.0))))
+            painter.setFont(font)
+            focus = (
+                "—"
+                if item.focus_score is None
+                else "{0:.0f}".format(item.focus_score)
+            )
+            label_height = painter.fontMetrics().height() + 6
+            _paint_label(
+                painter,
+                object_rect.left(),
+                max(image_rect.top(), object_rect.top() - label_height),
+                "{0} · {1} · focus {2}".format(
+                    item.label, item.importance, focus
+                ),
+                color,
+                image_rect,
+            )
     for index, face in enumerate(photo.subject_regions, start=1):
         x, y, width, height = face.bounds
         face_rect = QRectF(

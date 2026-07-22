@@ -226,6 +226,52 @@ class BaselineAnalyzerTests(unittest.TestCase):
             BaselineAnalyzer._best_score(Decision.KEEP, closed_primary_eye),
         )
 
+    def test_general_subject_softness_is_review_only_for_detector_evidence(self) -> None:
+        common = dict(
+            focus_score=120.0,
+            brightness=0.5,
+            clipped_dark=0.0,
+            clipped_bright=0.0,
+            face_count=0,
+            eye_count=0,
+            subject_focus=None,
+            primary_subject_focus=8.0,
+        )
+
+        detected, detected_reasons = BaselineAnalyzer._classify(
+            object_model="nanodet-opencv", **common
+        )
+        fallback, fallback_reasons = BaselineAnalyzer._classify(
+            object_model="spectral-saliency", **common
+        )
+
+        self.assertEqual(Decision.REVIEW, detected)
+        self.assertTrue(any("primary detected subject" in item for item in detected_reasons))
+        self.assertEqual(Decision.KEEP, fallback)
+        self.assertFalse(any("primary detected subject" in item for item in fallback_reasons))
+
+    def test_general_subject_focus_influences_best_ranking(self) -> None:
+        common = AnalysisResult(
+            decision=Decision.KEEP,
+            focus_score=120.0,
+            brightness=0.5,
+            clipped_dark=0.0,
+            clipped_bright=0.0,
+            content_hash=None,
+            perceptual_hash=None,
+            face_count=0,
+            eye_count=0,
+            subject_focus_score=None,
+            reasons=("Passed",),
+        )
+        sharp_subject = replace(common, primary_subject_focus_score=400.0)
+        soft_subject = replace(common, primary_subject_focus_score=8.0)
+
+        self.assertGreater(
+            BaselineAnalyzer._best_score(Decision.KEEP, sharp_subject),
+            BaselineAnalyzer._best_score(Decision.KEEP, soft_subject),
+        )
+
     def test_capture_time_groups_a_visually_changing_burst(self) -> None:
         (self.shoot / "burst-1.jpg").write_bytes(
             self._jpeg_bytes(np.full((300, 400, 3), 100, dtype=np.uint8))

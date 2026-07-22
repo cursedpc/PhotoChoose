@@ -22,4 +22,19 @@ PhotoChoose computes eye aperture from six eyelid landmarks per eye. Ratios at o
 between them as uncertain. These deliberately conservative thresholds were checked against
 the photographer's local development corpus and should be recalibrated as that corpus grows.
 
+## NanoDet general object detector
+
+- File: `object_detection_nanodet_2022nov.onnx`
+- Upstream: OpenCV Zoo, `models/object_detection_nanodet`
+- Source: `https://github.com/opencv/opencv_zoo/tree/main/models/object_detection_nanodet`
+- License: Apache License 2.0 (`NANODET_LICENSE`)
+- Input: RGB `1×3×416×416`, letterboxed and normalized
+- Output: COCO-80 object labels and bounding boxes
+- SHA-256: `4b82da9944b88577175ee23a459dce2e26e6e4be573def65b1055dc2d9720186`
+
+PhotoChoose runs NanoDet through OpenCV DNN and measures focus inside each detected
+region. If none of its 80 classes is detected, a model-free spectral-saliency fallback may
+identify one unlabeled prominent region. Saliency-only evidence can influence relative Best
+ranking but cannot independently send a photograph to Review.
+
 The models run locally. PhotoChoose performs no model download at runtime.

@@ -115,6 +115,19 @@ class PhotoListModel(QAbstractListModel):
                 lines.append("Weakest primary-eye focus: {0:.2f}".format(
                     photo.eye_focus_score
                 ))
+            if photo.object_count:
+                lines.append("Detected objects: {0}".format(photo.object_count))
+                for item in photo.subject_objects:
+                    focus = "—" if item.focus_score is None else "{0:.1f}".format(
+                        item.focus_score
+                    )
+                    lines.append(
+                        "  {0}: {1}, focus {2}".format(
+                            item.label, item.importance, focus
+                        )
+                    )
+            if photo.object_model != "none":
+                lines.append("Object model: {0}".format(photo.object_model))
             if photo.similarity_group:
                 lines.append("Similar group: {0}".format(photo.similarity_group))
                 if photo.group_reason:

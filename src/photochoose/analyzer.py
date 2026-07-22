@@ -11,7 +11,8 @@ import cv2
 import numpy as np
 
 from photochoose.database import PhotoDatabase
-from photochoose.models import Decision, FaceEvidence, Photo, PhotoView
+from photochoose.models import Decision, FaceEvidence, ObjectEvidence, Photo, PhotoView
+from photochoose.object_models import GeneralSubjectAnalyzer
 from photochoose.vision_models import ModelSubjectAnalyzer
 
 MAX_ANALYSIS_DIMENSION = 1600
@@ -47,6 +48,10 @@ class AnalysisResult:
     important_closed_eye_count: int = 0
     important_uncertain_eye_count: int = 0
     subject_regions: Tuple[FaceEvidence, ...] = ()
+    object_count: int = 0
+    object_model: str = "none"
+    primary_subject_focus_score: Optional[float] = None
+    subject_objects: Tuple[ObjectEvidence, ...] = ()
     duplicate_of_id: Optional[int] = None
     status: str = "complete"
 
@@ -57,6 +62,7 @@ class BaselineAnalyzer:
     def __init__(self, database: PhotoDatabase) -> None:
         self.database = database
         self.subject_analyzer = ModelSubjectAnalyzer()
+        self.object_analyzer = GeneralSubjectAnalyzer()
         cascade_root = Path(cv2.data.haarcascades)
         self.face_cascade = cv2.CascadeClassifier(
             str(cascade_root / "haarcascade_frontalface_default.xml")
@@ -108,6 +114,13 @@ class BaselineAnalyzer:
                 result.eye_open_score,
                 result.eye_focus_score,
                 result.subject_regions,
+            )
+            self.database.apply_object_analysis(
+                photo.id,
+                result.object_count,
+                result.object_model,
+                result.primary_subject_focus_score,
+                result.subject_objects,
             )
             if result.content_hash and result.content_hash not in hashes:
                 hashes[result.content_hash] = (photo, result)
@@ -177,6 +190,12 @@ class BaselineAnalyzer:
                     original_result.important_uncertain_eye_count
                 ),
                 subject_regions=original_result.subject_regions,
+                object_count=original_result.object_count,
+                object_model=original_result.object_model,
+                primary_subject_focus_score=(
+                    original_result.primary_subject_focus_score
+                ),
+                subject_objects=original_result.subject_objects,
                 duplicate_of_id=original.id,
             )
 
@@ -221,6 +240,8 @@ class BaselineAnalyzer:
             important_uncertain_eye_count = subject_result.important_uncertain_eye_count
             subject_regions = subject_result.regions
 
+        object_result = self.object_analyzer.analyze(image)
+
         decision, reasons = self._classify(
             focus_score,
             brightness,
@@ -235,6 +256,8 @@ class BaselineAnalyzer:
             important_open_eye_count,
             important_closed_eye_count,
             important_uncertain_eye_count,
+            object_result.primary_focus_score,
+            object_result.model_name,
         )
         return AnalysisResult(
             decision=decision,
@@ -265,6 +288,14 @@ class BaselineAnalyzer:
             important_closed_eye_count=important_closed_eye_count,
             important_uncertain_eye_count=important_uncertain_eye_count,
             subject_regions=subject_regions,
+            object_count=object_result.object_count,
+            object_model=object_result.model_name,
+            primary_subject_focus_score=(
+                round(object_result.primary_focus_score, 2)
+                if object_result.primary_focus_score is not None
+                else None
+            ),
+            subject_objects=object_result.objects,
         )
 
     @staticmethod
@@ -515,6 +546,13 @@ class BaselineAnalyzer:
             eye_focus = focus
             closed_eye_penalty = 0.0
         review_penalty = 10.0 if decision == Decision.REVIEW else 0.0
+        object_adjustment = 0.0
+        if result.primary_subject_focus_score is not None:
+            object_focus = min(
+                1.0,
+                math.log1p(result.primary_subject_focus_score) / math.log(501.0),
+            )
+            object_adjustment = (object_focus - 0.5) * 12.0
         return round(
             focus * 30.0
             + exposure * 15.0
@@ -522,7 +560,8 @@ class BaselineAnalyzer:
             + eyes * 15.0
             + eye_focus * 15.0
             - review_penalty
-            - closed_eye_penalty,
+            - closed_eye_penalty
+            + object_adjustment,
             2,
         )
 
@@ -554,6 +593,8 @@ class BaselineAnalyzer:
         important_eye_count: Optional[int] = None,
         important_closed_eye_count: Optional[int] = None,
         important_uncertain_eye_count: Optional[int] = None,
+        primary_subject_focus: Optional[float] = None,
+        object_model: str = "none",
     ) -> Tuple[Decision, Tuple[str, ...]]:
         if clipped_dark >= 0.98:
             return Decision.REJECT, ("Almost entirely black",)
@@ -603,6 +644,13 @@ class BaselineAnalyzer:
                 or considered_open_eyes + considered_closed_eyes < considered_faces * 2
             ):
                 reasons.append("Eyes are not confidently visible on every important face")
+
+        if (
+            object_model.startswith("nanodet")
+            and primary_subject_focus is not None
+            and primary_subject_focus < 20.0
+        ):
+            reasons.append("At least one primary detected subject appears soft")
 
         if reasons:
             return Decision.REVIEW, tuple(reasons)

@@ -11,6 +11,7 @@ from photochoose.models import (
     Decision,
     EyeEvidence,
     FaceEvidence,
+    ObjectEvidence,
     Photo,
     PhotoView,
     Project,
@@ -80,6 +81,10 @@ class PhotoDatabase:
                     eye_focus_score REAL,
                     subject_regions TEXT NOT NULL DEFAULT '[]',
                     subject_focus_score REAL,
+                    object_count INTEGER NOT NULL DEFAULT 0,
+                    object_model TEXT NOT NULL DEFAULT 'none',
+                    primary_subject_focus_score REAL,
+                    subject_objects TEXT NOT NULL DEFAULT '[]',
                     similarity_group TEXT,
                     group_reason TEXT,
                     best_score REAL,
@@ -148,6 +153,10 @@ class PhotoDatabase:
             "eye_focus_score": "REAL",
             "subject_regions": "TEXT NOT NULL DEFAULT '[]'",
             "subject_focus_score": "REAL",
+            "object_count": "INTEGER NOT NULL DEFAULT 0",
+            "object_model": "TEXT NOT NULL DEFAULT 'none'",
+            "primary_subject_focus_score": "REAL",
+            "subject_objects": "TEXT NOT NULL DEFAULT '[]'",
             "similarity_group": "TEXT",
             "group_reason": "TEXT",
             "best_score": "REAL",
@@ -405,6 +414,22 @@ class PhotoDatabase:
                             WHEN photos.size_bytes != excluded.size_bytes
                               OR photos.modified_ns != excluded.modified_ns
                             THEN NULL ELSE photos.subject_focus_score END,
+                        object_count = CASE
+                            WHEN photos.size_bytes != excluded.size_bytes
+                              OR photos.modified_ns != excluded.modified_ns
+                            THEN 0 ELSE photos.object_count END,
+                        object_model = CASE
+                            WHEN photos.size_bytes != excluded.size_bytes
+                              OR photos.modified_ns != excluded.modified_ns
+                            THEN 'none' ELSE photos.object_model END,
+                        primary_subject_focus_score = CASE
+                            WHEN photos.size_bytes != excluded.size_bytes
+                              OR photos.modified_ns != excluded.modified_ns
+                            THEN NULL ELSE photos.primary_subject_focus_score END,
+                        subject_objects = CASE
+                            WHEN photos.size_bytes != excluded.size_bytes
+                              OR photos.modified_ns != excluded.modified_ns
+                            THEN '[]' ELSE photos.subject_objects END,
                         similarity_group = CASE
                             WHEN photos.size_bytes != excluded.size_bytes
                               OR photos.modified_ns != excluded.modified_ns
@@ -525,7 +550,9 @@ class PhotoDatabase:
                        p.closed_eye_count, p.uncertain_eye_count, p.subject_model,
                        p.face_confidence, p.eye_open_score, p.eye_focus_score,
                        p.subject_regions,
-                       p.subject_focus_score, p.similarity_group, p.group_reason,
+                       p.subject_focus_score, p.object_count, p.object_model,
+                       p.primary_subject_focus_score, p.subject_objects,
+                       p.similarity_group, p.group_reason,
                        p.best_score, p.captured_at, p.camera_make, p.camera_model,
                        p.lens_model, p.iso, p.exposure_seconds, p.aperture,
                        p.focal_length, p.preview_relative_path,
@@ -662,6 +689,32 @@ class PhotoDatabase:
                     eye_open_score,
                     eye_focus_score,
                     self._encode_subject_regions(subject_regions),
+                    photo_id,
+                ),
+            )
+            connection.commit()
+
+    def apply_object_analysis(
+        self,
+        photo_id: int,
+        object_count: int,
+        object_model: str,
+        primary_subject_focus_score: Optional[float],
+        subject_objects: Sequence[ObjectEvidence],
+    ) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                """
+                UPDATE photos SET
+                    object_count = ?, object_model = ?,
+                    primary_subject_focus_score = ?, subject_objects = ?
+                WHERE id = ?
+                """,
+                (
+                    object_count,
+                    object_model,
+                    primary_subject_focus_score,
+                    self._encode_subject_objects(subject_objects),
                     photo_id,
                 ),
             )
@@ -817,6 +870,12 @@ class PhotoDatabase:
                 row["subject_regions"]
             ),
             subject_focus_score=row["subject_focus_score"],
+            object_count=row["object_count"],
+            object_model=row["object_model"],
+            primary_subject_focus_score=row["primary_subject_focus_score"],
+            subject_objects=PhotoDatabase._decode_subject_objects(
+                row["subject_objects"]
+            ),
             similarity_group=row["similarity_group"],
             best_score=row["best_score"],
             group_reason=row["group_reason"],
@@ -900,6 +959,43 @@ class PhotoDatabase:
                     ),
                 )
                 for region in decoded
+            )
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return ()
+
+    @staticmethod
+    def _encode_subject_objects(objects: Sequence[ObjectEvidence]) -> str:
+        return json.dumps(
+            [
+                {
+                    "label": item.label,
+                    "bounds": list(item.bounds),
+                    "confidence": item.confidence,
+                    "focus_score": item.focus_score,
+                    "importance": item.importance,
+                }
+                for item in objects
+            ],
+            separators=(",", ":"),
+        )
+
+    @staticmethod
+    def _decode_subject_objects(value: str) -> Tuple[ObjectEvidence, ...]:
+        try:
+            decoded = json.loads(value or "[]")
+            return tuple(
+                ObjectEvidence(
+                    label=str(item["label"]),
+                    bounds=tuple(float(number) for number in item["bounds"]),
+                    confidence=float(item["confidence"]),
+                    focus_score=(
+                        float(item["focus_score"])
+                        if item.get("focus_score") is not None
+                        else None
+                    ),
+                    importance=str(item["importance"]),
+                )
+                for item in decoded
             )
         except (KeyError, TypeError, ValueError, json.JSONDecodeError):
             return ()

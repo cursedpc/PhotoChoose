@@ -14,6 +14,7 @@ from photochoose.models import (  # noqa: E402
     Decision,
     EyeEvidence,
     FaceEvidence,
+    ObjectEvidence,
     Photo,
 )
 
@@ -58,6 +59,28 @@ class AnalysisOverlayTests(unittest.TestCase):
         self.assertEqual(QColor("white"), QColor(source.pixel(80, 60)))
         self.assertNotEqual(QColor("white"), QColor(output.pixel(80, 60)))
         self.assertNotEqual(QColor("white"), QColor(output.pixel(100, 90)))
+
+    def test_overlay_draws_object_evidence_without_faces(self) -> None:
+        source = QImage(400, 300, QImage.Format_RGB32)
+        source.fill(QColor("white"))
+        photo = Photo(
+            id=1,
+            project_id=1,
+            relative_path="still-life.jpg",
+            absolute_path="/still-life.jpg",
+            decision=Decision.KEEP,
+            is_best=False,
+            subject_objects=(
+                ObjectEvidence(
+                    "vase", (0.25, 0.2, 0.4, 0.6), 0.92, 180.0, "primary"
+                ),
+            ),
+        )
+
+        output = render_analysis_overlay(source, photo)
+
+        self.assertEqual(QColor("white"), QColor(source.pixel(100, 60)))
+        self.assertNotEqual(QColor("white"), QColor(output.pixel(100, 60)))
 
 
 if __name__ == "__main__":
