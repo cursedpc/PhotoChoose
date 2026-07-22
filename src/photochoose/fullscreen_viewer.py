@@ -18,7 +18,6 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
-    QFrame,
     QGestureEvent,
     QHBoxLayout,
     QLabel,
@@ -92,32 +91,6 @@ class FullscreenPhotoDialog(QDialog):
         toolbar.addWidget(close_button)
         layout.addLayout(toolbar)
 
-        self.keep_button = self._action_button(
-            "Keep", lambda: self._set_decision(Decision.KEEP)
-        )
-        self.keep_button.setProperty("kind", "keep")
-        self.review_button = self._action_button(
-            "Review", lambda: self._set_decision(Decision.REVIEW)
-        )
-        self.review_button.setProperty("kind", "review")
-        self.reject_button = self._action_button(
-            "Reject", lambda: self._set_decision(Decision.REJECT)
-        )
-        self.reject_button.setProperty("kind", "reject")
-        self.clear_button = self._action_button(
-            "Clear", lambda: self._set_decision(Decision.UNREVIEWED)
-        )
-        self.clear_button.setProperty("kind", "quiet")
-        self.best_button = self._action_button("Best", self._toggle_best)
-        self.best_button.setProperty("kind", "best")
-        self.best_button.setCheckable(True)
-        self.overlay_button = self._action_button(
-            "Evidence", self._toggle_analysis_overlay
-        )
-        self.overlay_button.setCheckable(True)
-        for button in (self.keep_button, self.review_button, self.reject_button):
-            button.setCheckable(True)
-
         self.image_label = QLabel()
         self.image_label.setObjectName("fullscreenCanvas")
         self.image_label.setAlignment(Qt.AlignCenter)
@@ -131,24 +104,6 @@ class FullscreenPhotoDialog(QDialog):
         self.footer_label.setAlignment(Qt.AlignCenter)
         self.footer_label.setObjectName("mutedLabel")
         layout.addWidget(self.footer_label)
-
-        action_shelf = QFrame()
-        action_shelf.setObjectName("actionShelf")
-        action_layout = QHBoxLayout(action_shelf)
-        action_layout.setContentsMargins(10, 7, 10, 7)
-        action_layout.setSpacing(7)
-        action_layout.addStretch(1)
-        for button in (
-            self.keep_button,
-            self.review_button,
-            self.reject_button,
-            self.best_button,
-            self.clear_button,
-            self.overlay_button,
-        ):
-            action_layout.addWidget(button)
-        action_layout.addStretch(1)
-        layout.addWidget(action_shelf)
         self._show_current_photo()
 
     @property
@@ -156,12 +111,6 @@ class FullscreenPhotoDialog(QDialog):
         if not self.photos:
             return None
         return self.photos[self.current_index]
-
-    @staticmethod
-    def _action_button(text: str, handler) -> QPushButton:
-        button = QPushButton(text)
-        button.clicked.connect(handler)
-        return button
 
     def _show_current_photo(self) -> None:
         photo = self.current_photo
@@ -188,14 +137,6 @@ class FullscreenPhotoDialog(QDialog):
         )
         self._load_image(photo.display_path)
         self._update_controls()
-        self._update_action_state(photo)
-
-    def _update_action_state(self, photo: Photo) -> None:
-        self.keep_button.setChecked(photo.decision == Decision.KEEP)
-        self.review_button.setChecked(photo.decision == Decision.REVIEW)
-        self.reject_button.setChecked(photo.decision == Decision.REJECT)
-        self.best_button.setChecked(photo.is_best)
-        self.best_button.setText("Best selected" if photo.is_best else "Best")
 
     def _load_image(self, image_path: str) -> None:
         self.image_label.clear()
@@ -245,15 +186,6 @@ class FullscreenPhotoDialog(QDialog):
         has_photo = self.current_photo is not None
         self.previous_button.setEnabled(has_photo and self.current_index > 0)
         self.next_button.setEnabled(has_photo and self.current_index < len(self.photos) - 1)
-        for button in (
-            self.keep_button,
-            self.review_button,
-            self.reject_button,
-            self.clear_button,
-            self.best_button,
-            self.overlay_button,
-        ):
-            button.setEnabled(has_photo)
 
     @Slot()
     def previous_photo(self) -> None:
@@ -282,11 +214,6 @@ class FullscreenPhotoDialog(QDialog):
             return
         self.database.toggle_best([photo.id])
         self._reload_current_photo()
-
-    @Slot()
-    def _toggle_analysis_overlay(self) -> None:
-        self.overlay_enabled = self.overlay_button.isChecked()
-        self._scale_current_image()
 
     def _reload_current_photo(self) -> None:
         photo = self.current_photo
@@ -336,9 +263,6 @@ class FullscreenPhotoDialog(QDialog):
     @Slot(bool)
     def _set_analysis_overlay(self, enabled: bool) -> None:
         self.overlay_enabled = enabled
-        self.overlay_button.blockSignals(True)
-        self.overlay_button.setChecked(enabled)
-        self.overlay_button.blockSignals(False)
         self._scale_current_image()
 
     @Slot()
@@ -412,7 +336,7 @@ class FullscreenPhotoDialog(QDialog):
             self._toggle_best()
             return
         if key == Qt.Key_O:
-            self.overlay_button.setChecked(not self.overlay_button.isChecked())
+            self._set_analysis_overlay(not self.overlay_enabled)
             return
         super().keyPressEvent(event)
 

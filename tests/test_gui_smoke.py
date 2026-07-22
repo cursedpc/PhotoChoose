@@ -86,6 +86,9 @@ class GuiSmokeTests(unittest.TestCase):
                 window.photo_model.index(0, 0),
                 QItemSelectionModel.ClearAndSelect,
             )
+            app.processEvents()
+            self.assertFalse(window.inspector.preview_label.isHidden())
+            self.assertFalse(window.inspector.preview_label.pixmap().isNull())
             self.assertEqual(Qt.CustomContextMenu, window.project_list.contextMenuPolicy())
             self.assertEqual(Qt.CustomContextMenu, window.photo_grid.contextMenuPolicy())
             self.assertIn("frame-0.bmp", window.inspector.details_label.text())
@@ -193,7 +196,7 @@ class GuiSmokeTests(unittest.TestCase):
                 "Analysis overlay",
                 [action.text() for action in viewer._context_menu().actions()],
             )
-            viewer.overlay_button.click()
+            QTest.keyClick(viewer, Qt.Key_O)
             self.assertTrue(viewer.overlay_enabled)
             viewer.close()
 

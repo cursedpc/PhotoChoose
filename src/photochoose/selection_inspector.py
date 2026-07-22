@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections import Counter
 from typing import Optional, Sequence
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QImage, QImageReader, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -24,6 +25,7 @@ class SelectionInspector(QFrame):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        self._preview_image = QImage()
         self.setObjectName("inspectorSurface")
 
         layout = QVBoxLayout(self)
@@ -42,6 +44,14 @@ class SelectionInspector(QFrame):
         self.visible_count_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         header.addWidget(self.visible_count_label)
         layout.addLayout(header)
+
+        self.preview_label = QLabel()
+        self.preview_label.setObjectName("inspectorPreview")
+        self.preview_label.setAlignment(Qt.AlignCenter)
+        self.preview_label.setFixedHeight(168)
+        self.preview_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.preview_label.hide()
+        layout.addWidget(self.preview_label)
 
         self.selection_title = QLabel("Nothing selected")
         self.selection_title.setObjectName("selectionTitle")
@@ -165,6 +175,7 @@ class SelectionInspector(QFrame):
         )
 
         if not photos:
+            self._clear_preview()
             self.selection_title.setText("Nothing selected")
             self.selection_hint.setText("Choose a photo to review or classify it.")
             self._set_checked_state(None, False)
@@ -175,6 +186,7 @@ class SelectionInspector(QFrame):
             return
 
         if len(photos) > 1:
+            self._clear_preview()
             self.selection_title.setText("{0} photos selected".format(len(photos)))
             decisions = Counter(photo.decision.value for photo in photos)
             decision_summary = " · ".join(
@@ -196,6 +208,7 @@ class SelectionInspector(QFrame):
             return
 
         photo = photos[0]
+        self._load_preview(photo.display_path)
         self.selection_title.setText(photo.filename)
         self.selection_hint.setText(
             "{0}{1}".format(
@@ -260,6 +273,40 @@ class SelectionInspector(QFrame):
         if photo.auto_reasons:
             metrics.append("Reasons: " + " · ".join(photo.auto_reasons))
         self.details_label.setText("\n".join(metrics))
+
+    def _load_preview(self, path: str) -> None:
+        reader = QImageReader(path)
+        reader.setAutoTransform(True)
+        source_size = reader.size()
+        if source_size.isValid():
+            reader.setScaledSize(source_size.scaled(900, 600, Qt.KeepAspectRatio))
+        self._preview_image = reader.read()
+        if self._preview_image.isNull():
+            self.preview_label.setText("Preview unavailable")
+        else:
+            self.preview_label.setText("")
+        self.preview_label.show()
+        QTimer.singleShot(0, self._render_preview)
+
+    def _clear_preview(self) -> None:
+        self._preview_image = QImage()
+        self.preview_label.clear()
+        self.preview_label.hide()
+
+    def _render_preview(self) -> None:
+        if self._preview_image.isNull() or not self.preview_label.isVisible():
+            return
+        target = self.preview_label.contentsRect().size()
+        target.setWidth(max(1, target.width() - 2))
+        target.setHeight(max(1, target.height() - 2))
+        image = self._preview_image.scaled(
+            target, Qt.KeepAspectRatio, Qt.SmoothTransformation
+        )
+        self.preview_label.setPixmap(QPixmap.fromImage(image))
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._render_preview()
 
     def _set_checked_state(self, decision: Optional[str], is_best: bool) -> None:
         self.keep_button.setChecked(decision == "keep")

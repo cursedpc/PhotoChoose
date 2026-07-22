@@ -48,7 +48,7 @@ PhotoChoose is a private, local-first desktop application for professional photo
 - Open **Compare group** for any blue `B####` burst or gray `G####` similarity badge.
   The two-up view provides synchronized zoom and pan, candidate cycling, score/reason
   evidence, and independent decisions for each frame.
-- Cull in fullscreen using its toolbar or context menu and navigate with Left/Right,
+- Cull in fullscreen using the **More** menu, context menu, or keyboard shortcuts and navigate with Left/Right,
   A/D, Space/Backspace, or a horizontal trackpad gesture; press `Esc` to close it.
 - Mark selected photographs using the inspector, context menus, or keyboard shortcuts.
 - Export kept and best photographs to a user-selected destination.
@@ -66,7 +66,7 @@ PhotoChoose is a private, local-first desktop application for professional photo
 
 Manual decisions are protected: after you explicitly classify a photograph, subsequent analysis runs update its metrics and reasons but do not overwrite your choice.
 
-Each project has a **Safe**, **Balanced**, or **Strict** analysis profile in the Project menu.
+Each project has a **Safe**, **Balanced**, or **Strict** analysis profile in **Settings**.
 Safe is the conservative default. Changing the profile marks existing results as stale but does not
 silently reclassify anything; click **Analyze and separate** when you are ready to apply the
 new profile. Every result stores its profile and analysis version for later inspection.
@@ -80,7 +80,7 @@ not modify thresholds automatically. Small local tests validate the report machi
 meaningful threshold tuning and performance validation require representative large shoots on
 the target machine.
 
-The Project menu also sets **Best per group** from 1–5. PhotoChoose reuses stored group rankings,
+**Settings** also sets **Best per group** from 1–5. PhotoChoose reuses stored group rankings,
 so changing this value does not rerun image analysis. Automatic selections favor the highest
 scores while skipping near-identical perceptual hashes; the limit is therefore a maximum, not
 a promise to fill a group with redundant frames. Explicit manual Best choices are always

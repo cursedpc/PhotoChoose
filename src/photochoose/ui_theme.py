@@ -41,10 +41,9 @@ QLabel#fullscreenCanvas {
     border: 1px solid #25262a;
 }
 
-QFrame#actionShelf {
-    background: #191a1d;
-    border: none;
-    border-top: 1px solid #303136;
+QLabel#inspectorPreview {
+    background: #141518;
+    border: 1px solid #303136;
 }
 
 QFrame#workspaceHeader, QFrame#workspaceNavigation {

@@ -221,7 +221,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(brand)
         layout.addSpacing(12)
 
-        title = QLabel("Projects")
+        title = QLabel("Folders")
         title.setObjectName("eyebrow")
         layout.addWidget(title)
 
@@ -279,17 +279,11 @@ class MainWindow(QMainWindow):
         title_row.addWidget(self.analyze_button)
 
         self.project_options_button = QToolButton()
-        self.project_options_button.setText("Project")
+        self.project_options_button.setText("Settings")
         self.project_options_button.setPopupMode(QToolButton.InstantPopup)
         self.project_options_button.setEnabled(False)
         self.project_options_menu = QMenu(self.project_options_button)
-        self.project_options_menu.addAction(self.rescan_button)
-        self.project_options_menu.addAction(self.export_button)
-        self.project_options_menu.addAction(self.calibration_button)
-        self.project_options_menu.addSeparator()
         self.project_options_menu.addAction(self._build_project_settings_action())
-        self.project_options_menu.addSeparator()
-        self.project_options_menu.addAction(self.close_project_button)
         self.project_options_button.setMenu(self.project_options_menu)
         title_row.addWidget(self.project_options_button)
         header_layout.addLayout(title_row)
