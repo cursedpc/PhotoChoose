@@ -126,6 +126,24 @@ class PhotoDatabase:
                     new_value TEXT NOT NULL,
                     analysis_profile TEXT,
                     analysis_version TEXT,
+                    photo_path TEXT,
+                    auto_reasons TEXT NOT NULL DEFAULT '[]',
+                    focus_score REAL,
+                    brightness REAL,
+                    clipped_dark REAL,
+                    clipped_bright REAL,
+                    face_count INTEGER,
+                    eye_count INTEGER,
+                    closed_eye_count INTEGER,
+                    uncertain_eye_count INTEGER,
+                    subject_focus_score REAL,
+                    face_confidence REAL,
+                    eye_open_score REAL,
+                    eye_focus_score REAL,
+                    object_count INTEGER,
+                    primary_subject_focus_score REAL,
+                    best_score REAL,
+                    similarity_group TEXT,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
 
@@ -135,6 +153,7 @@ class PhotoDatabase:
             )
             self._add_missing_project_columns(connection)
             self._add_missing_photo_columns(connection)
+            self._add_missing_override_columns(connection)
             connection.commit()
 
     @staticmethod
@@ -206,6 +225,44 @@ class PhotoDatabase:
         for name, definition in definitions.items():
             if name not in existing:
                 connection.execute("ALTER TABLE photos ADD COLUMN {0} {1}".format(name, definition))
+
+    @staticmethod
+    def _add_missing_override_columns(connection: sqlite3.Connection) -> None:
+        """Extend calibration snapshots created by earlier profile builds."""
+
+        existing = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA table_info(manual_overrides)"
+            ).fetchall()
+        }
+        definitions = {
+            "photo_path": "TEXT",
+            "auto_reasons": "TEXT NOT NULL DEFAULT '[]'",
+            "focus_score": "REAL",
+            "brightness": "REAL",
+            "clipped_dark": "REAL",
+            "clipped_bright": "REAL",
+            "face_count": "INTEGER",
+            "eye_count": "INTEGER",
+            "closed_eye_count": "INTEGER",
+            "uncertain_eye_count": "INTEGER",
+            "subject_focus_score": "REAL",
+            "face_confidence": "REAL",
+            "eye_open_score": "REAL",
+            "eye_focus_score": "REAL",
+            "object_count": "INTEGER",
+            "primary_subject_focus_score": "REAL",
+            "best_score": "REAL",
+            "similarity_group": "TEXT",
+        }
+        for name, definition in definitions.items():
+            if name not in existing:
+                connection.execute(
+                    "ALTER TABLE manual_overrides ADD COLUMN {0} {1}".format(
+                        name, definition
+                    )
+                )
 
     def add_project(self, root_path: Path) -> Project:
         root = Path(root_path).expanduser().resolve()
@@ -613,8 +670,13 @@ class PhotoDatabase:
             source = "none" if decision == Decision.UNREVIEWED else "manual"
             rows = connection.execute(
                 """
-                SELECT id, project_id, decision, decision_source,
-                       analysis_profile, analysis_version
+                SELECT id, project_id, relative_path, decision, decision_source,
+                       analysis_profile, analysis_version, auto_reasons,
+                       focus_score, brightness, clipped_dark, clipped_bright,
+                       face_count, eye_count, closed_eye_count, uncertain_eye_count,
+                       subject_focus_score, face_confidence, eye_open_score,
+                       eye_focus_score, object_count, primary_subject_focus_score,
+                       best_score, similarity_group
                 FROM photos WHERE id IN ({0})
                 """.format(placeholders),
                 list(photo_ids),
@@ -626,8 +688,16 @@ class PhotoDatabase:
                     """
                     INSERT INTO manual_overrides(
                         photo_id, project_id, action_type, previous_value,
-                        previous_source, new_value, analysis_profile, analysis_version
-                    ) VALUES (?, ?, 'decision', ?, ?, ?, ?, ?)
+                        previous_source, new_value, analysis_profile, analysis_version,
+                        photo_path, auto_reasons, focus_score, brightness, clipped_dark,
+                        clipped_bright, face_count, eye_count, closed_eye_count,
+                        uncertain_eye_count, subject_focus_score, face_confidence,
+                        eye_open_score, eye_focus_score, object_count,
+                        primary_subject_focus_score, best_score, similarity_group
+                    ) VALUES (
+                        ?, ?, 'decision', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    )
                     """,
                     (
                         row["id"],
@@ -637,6 +707,24 @@ class PhotoDatabase:
                         decision.value,
                         row["analysis_profile"],
                         row["analysis_version"],
+                        row["relative_path"],
+                        row["auto_reasons"],
+                        row["focus_score"],
+                        row["brightness"],
+                        row["clipped_dark"],
+                        row["clipped_bright"],
+                        row["face_count"],
+                        row["eye_count"],
+                        row["closed_eye_count"],
+                        row["uncertain_eye_count"],
+                        row["subject_focus_score"],
+                        row["face_confidence"],
+                        row["eye_open_score"],
+                        row["eye_focus_score"],
+                        row["object_count"],
+                        row["primary_subject_focus_score"],
+                        row["best_score"],
+                        row["similarity_group"],
                     ),
                 )
             connection.execute(
@@ -713,8 +801,13 @@ class PhotoDatabase:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
-                SELECT id, project_id, is_best, best_source,
-                       analysis_profile, analysis_version
+                SELECT id, project_id, relative_path, is_best, best_source,
+                       analysis_profile, analysis_version, auto_reasons,
+                       focus_score, brightness, clipped_dark, clipped_bright,
+                       face_count, eye_count, closed_eye_count, uncertain_eye_count,
+                       subject_focus_score, face_confidence, eye_open_score,
+                       eye_focus_score, object_count, primary_subject_focus_score,
+                       best_score, similarity_group
                 FROM photos WHERE id IN ({0})
                 """.format(placeholders),
                 list(photo_ids),
@@ -724,8 +817,16 @@ class PhotoDatabase:
                     """
                     INSERT INTO manual_overrides(
                         photo_id, project_id, action_type, previous_value,
-                        previous_source, new_value, analysis_profile, analysis_version
-                    ) VALUES (?, ?, 'best', ?, ?, ?, ?, ?)
+                        previous_source, new_value, analysis_profile, analysis_version,
+                        photo_path, auto_reasons, focus_score, brightness, clipped_dark,
+                        clipped_bright, face_count, eye_count, closed_eye_count,
+                        uncertain_eye_count, subject_focus_score, face_confidence,
+                        eye_open_score, eye_focus_score, object_count,
+                        primary_subject_focus_score, best_score, similarity_group
+                    ) VALUES (
+                        ?, ?, 'best', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    )
                     """,
                     (
                         row["id"],
@@ -735,6 +836,24 @@ class PhotoDatabase:
                         "off" if row["is_best"] else "on",
                         row["analysis_profile"],
                         row["analysis_version"],
+                        row["relative_path"],
+                        row["auto_reasons"],
+                        row["focus_score"],
+                        row["brightness"],
+                        row["clipped_dark"],
+                        row["clipped_bright"],
+                        row["face_count"],
+                        row["eye_count"],
+                        row["closed_eye_count"],
+                        row["uncertain_eye_count"],
+                        row["subject_focus_score"],
+                        row["face_confidence"],
+                        row["eye_open_score"],
+                        row["eye_focus_score"],
+                        row["object_count"],
+                        row["primary_subject_focus_score"],
+                        row["best_score"],
+                        row["similarity_group"],
                     ),
                 )
             connection.execute(
@@ -789,14 +908,30 @@ class PhotoDatabase:
             rows = connection.execute(
                 """
                 SELECT id, photo_id, action_type, previous_value, previous_source,
-                       new_value, analysis_profile, analysis_version, created_at
+                       new_value, analysis_profile, analysis_version, photo_path,
+                       auto_reasons, focus_score, brightness, clipped_dark,
+                       clipped_bright, face_count, eye_count, closed_eye_count,
+                       uncertain_eye_count, subject_focus_score, face_confidence,
+                       eye_open_score, eye_focus_score, object_count,
+                       primary_subject_focus_score, best_score, similarity_group,
+                       created_at
                 FROM manual_overrides
                 WHERE project_id = ?
                 ORDER BY id
                 """,
                 (project_id,),
             ).fetchall()
-        return [dict(row) for row in rows]
+        overrides = []
+        for row in rows:
+            override = dict(row)
+            try:
+                override["auto_reasons"] = tuple(
+                    json.loads(override["auto_reasons"] or "[]")
+                )
+            except (TypeError, ValueError):
+                override["auto_reasons"] = ()
+            overrides.append(override)
+        return overrides
 
     def apply_subject_analysis(
         self,

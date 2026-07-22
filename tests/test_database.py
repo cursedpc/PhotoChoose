@@ -129,6 +129,18 @@ class PhotoDatabaseTests(unittest.TestCase):
                 indexed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(project_id, relative_path)
             );
+            CREATE TABLE manual_overrides (
+                id INTEGER PRIMARY KEY,
+                photo_id INTEGER NOT NULL,
+                project_id INTEGER NOT NULL,
+                action_type TEXT NOT NULL,
+                previous_value TEXT NOT NULL,
+                previous_source TEXT NOT NULL,
+                new_value TEXT NOT NULL,
+                analysis_profile TEXT,
+                analysis_version TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
             """
         )
         connection.close()
@@ -176,8 +188,16 @@ class PhotoDatabaseTests(unittest.TestCase):
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
             )
         }
+        override_columns = {
+            row[1]
+            for row in migrated.execute("PRAGMA table_info(manual_overrides)")
+        }
         migrated.close()
         self.assertIn("manual_overrides", tables)
+        self.assertIn("auto_reasons", override_columns)
+        self.assertIn("focus_score", override_columns)
+        self.assertIn("eye_open_score", override_columns)
+        self.assertIn("primary_subject_focus_score", override_columns)
 
     def test_profile_change_is_explicit_and_manual_overrides_are_local(self) -> None:
         self._write_photo("one.jpg")
@@ -212,6 +232,9 @@ class PhotoDatabaseTests(unittest.TestCase):
         self.assertEqual("automatic", overrides[0]["previous_source"])
         self.assertEqual("safe", overrides[0]["analysis_profile"])
         self.assertEqual(ANALYSIS_VERSION, overrides[0]["analysis_version"])
+        self.assertEqual("one.jpg", overrides[0]["photo_path"])
+        self.assertEqual(("Possibly soft",), overrides[0]["auto_reasons"])
+        self.assertEqual(18.0, overrides[0]["focus_score"])
 
         self.database.apply_analysis(
             photo.id,
@@ -226,10 +249,13 @@ class PhotoDatabaseTests(unittest.TestCase):
             analysis_profile="balanced",
         )
         reanalyzed = self.database.list_photos(project.id, PhotoView.ALL)[0]
+        preserved_snapshot = self.database.list_manual_overrides(project.id)[0]
         self.assertEqual("complete", reanalyzed.analysis_status)
         self.assertEqual("balanced", reanalyzed.analysis_profile)
         self.assertEqual(Decision.KEEP, reanalyzed.decision)
         self.assertEqual("manual", reanalyzed.decision_source)
+        self.assertEqual(("Possibly soft",), preserved_snapshot["auto_reasons"])
+        self.assertEqual(18.0, preserved_snapshot["focus_score"])
 
     def test_subject_evidence_round_trips_through_database(self) -> None:
         self._write_photo("one.jpg")

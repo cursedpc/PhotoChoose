@@ -294,10 +294,14 @@ Safe, Balanced, and Strict profiles now control global, exposure, face, eye, obj
 and within-burst separation thresholds. The chosen project profile and analysis version are
 stored with every result. Changing profiles explicitly marks existing analysis stale, while
 manual decisions and Best flags remain protected. Manual changes are recorded as private,
-local calibration events.
+local calibration events. A local calibration report summarizes disagreements by profile and
+signal, snapshots the evidence behind each correction, and emits suggestions only after a
+minimum repeated sample count. It never changes thresholds automatically.
 
-The next slice will turn that evidence into a corpus report, tune thresholds from real shoots,
-add controls for Best-shot count per group, and protect visually distinct alternatives.
+Real threshold tuning and performance validation are deliberately deferred until representative
+large shoots can run on the target machine. The next implementation slice can add controls for
+Best-shot count per group and protect visually distinct alternatives without claiming corpus
+calibration yet.
 
 ## Current implementation status
 

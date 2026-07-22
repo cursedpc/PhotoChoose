@@ -35,6 +35,8 @@ from PySide6.QtWidgets import (
 
 from photochoose.analysis_profiles import ANALYSIS_PROFILES, ANALYSIS_VERSION
 from photochoose.analyzer import BaselineAnalyzer
+from photochoose.calibration_dialog import CalibrationReportDialog
+from photochoose.calibration_report import build_calibration_report
 from photochoose.comparison_viewer import GroupComparisonDialog
 from photochoose.database import PhotoDatabase
 from photochoose.exporter import ProjectExporter
@@ -147,6 +149,7 @@ class MainWindow(QMainWindow):
         self.photo_model = PhotoListModel(database, self)
         self.fullscreen_dialog: Optional[FullscreenPhotoDialog] = None
         self.comparison_dialog: Optional[GroupComparisonDialog] = None
+        self.calibration_dialog: Optional[CalibrationReportDialog] = None
 
         self.setWindowTitle("PhotoChoose")
         self.resize(1280, 820)
@@ -197,6 +200,14 @@ class MainWindow(QMainWindow):
         self.analyze_button.clicked.connect(self._analyze_current_project)
         self.analyze_button.setEnabled(False)
         layout.addWidget(self.analyze_button)
+
+        self.calibration_button = QPushButton("Calibration report…")
+        self.calibration_button.setToolTip(
+            "Summarize local manual corrections without changing profile thresholds"
+        )
+        self.calibration_button.clicked.connect(self._open_calibration_report)
+        self.calibration_button.setEnabled(False)
+        layout.addWidget(self.calibration_button)
 
         self.export_button = QPushButton("Export Keep + Best…")
         self.export_button.setToolTip(
@@ -434,6 +445,8 @@ class MainWindow(QMainWindow):
         rescan.triggered.connect(self._rescan_current_project)
         analyze = menu.addAction("Analyze and separate")
         analyze.triggered.connect(self._analyze_current_project)
+        calibration = menu.addAction("Calibration report…")
+        calibration.triggered.connect(self._open_calibration_report)
         export = menu.addAction("Export Keep + Best…")
         export.triggered.connect(self._choose_export_folder)
         menu.addSeparator()
@@ -443,7 +456,7 @@ class MainWindow(QMainWindow):
             self.current_project is not None
             and self.current_project.id not in self.busy_projects
         )
-        for action in (rescan, analyze, export, close):
+        for action in (rescan, analyze, calibration, export, close):
             action.setEnabled(enabled)
         return menu
 
@@ -542,6 +555,28 @@ class MainWindow(QMainWindow):
             self._update_project_action_buttons()
         QMessageBox.warning(self, "Analysis failed", message)
         self.statusBar().showMessage("Analysis failed", 5000)
+
+    @Slot()
+    def _open_calibration_report(self) -> None:
+        if self.current_project is None:
+            return
+        if self.calibration_dialog is not None:
+            self.calibration_dialog.raise_()
+            self.calibration_dialog.activateWindow()
+            return
+        report = build_calibration_report(
+            self.database, self.current_project.id
+        )
+        dialog = CalibrationReportDialog(report, self)
+        dialog.finished.connect(self._calibration_report_closed)
+        self.calibration_dialog = dialog
+        dialog.show()
+
+    @Slot(int)
+    def _calibration_report_closed(self, _result: int) -> None:
+        dialog = self.sender()
+        if dialog is self.calibration_dialog:
+            self.calibration_dialog = None
 
     @Slot()
     def _close_current_project(self) -> None:
@@ -763,6 +798,7 @@ class MainWindow(QMainWindow):
         )
         self.rescan_button.setEnabled(enabled)
         self.analyze_button.setEnabled(enabled)
+        self.calibration_button.setEnabled(enabled)
         self.export_button.setEnabled(enabled)
         self.close_project_button.setEnabled(enabled)
         self.analysis_profile_combo.setEnabled(enabled)
@@ -780,6 +816,7 @@ class MainWindow(QMainWindow):
             self.view_tabs.setTabText(index, view.value.title())
         self.rescan_button.setEnabled(False)
         self.analyze_button.setEnabled(False)
+        self.calibration_button.setEnabled(False)
         self.export_button.setEnabled(False)
         self.close_project_button.setEnabled(False)
 
