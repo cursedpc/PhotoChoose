@@ -169,7 +169,8 @@ Tier 1 reduces the number of expensive model evaluations and should run on all p
 - **Implemented:** conservative Review evidence from confidently detected primary-object
   softness and modest general-subject focus weighting in Best ranking. This signal alone
   never automatically rejects a unique photograph; saliency-only evidence is ranking-only.
-- Add explicit obscured-eye separation beyond the current uncertain state.
+- **Implemented:** explicit obscured/unresolved eye visibility separated from eyelid
+  geometry, with conservative Review handling and inspectable visibility reasons.
 
 **Exit:** portrait and event photographs receive reliable, explainable subject-aware quality signals on macOS CPU.
 
