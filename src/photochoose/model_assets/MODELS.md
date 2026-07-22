@@ -1,0 +1,25 @@
+# Bundled inference models
+
+## YuNet face detector
+
+- File: `face_detection_yunet_2023mar.onnx`
+- Upstream: OpenCV Zoo, `models/face_detection_yunet`
+- License: MIT (`YUNET_LICENSE`)
+- SHA-256: `8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4`
+
+## MediaPipe Face Mesh V2 landmarks
+
+- File: `face_landmarks_detector.tflite`
+- Upstream: Google AI Edge MediaPipe `face_landmarker.task`, float16 release
+- Source bundle: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task`
+- License: Apache License 2.0 (`MEDIAPIPE_LICENSE`)
+- Input: RGB `1×256×256×3`, normalized to 0–1
+- Output: 478 three-dimensional face landmarks
+- SHA-256: `c7d54204ce0448474c7f3fa9af494787c0965cbdd6f20fc72867e43046bd43d5`
+
+PhotoChoose computes eye aperture from six eyelid landmarks per eye. Ratios at or below
+0.14 are treated as confidently closed, ratios at or above 0.19 as open, and the band
+between them as uncertain. These deliberately conservative thresholds were checked against
+the photographer's local development corpus and should be recalibrated as that corpus grows.
+
+The models run locally. PhotoChoose performs no model download at runtime.
