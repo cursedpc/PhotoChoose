@@ -188,6 +188,7 @@ class GuiSmokeTests(unittest.TestCase):
             QTest.keyClick(viewer, Qt.Key_R)
             refreshed = window.database.list_photos(project.id, PhotoView.ALL)
             self.assertEqual(Decision.REVIEW, refreshed[0].decision)
+            self.assertTrue(viewer.decision_badge.text().startswith("Review"))
             self.assertIn(
                 "Close fullscreen",
                 [action.text() for action in viewer._context_menu().actions()],

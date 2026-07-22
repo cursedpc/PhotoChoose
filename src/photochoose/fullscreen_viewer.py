@@ -78,8 +78,18 @@ class FullscreenPhotoDialog(QDialog):
         toolbar.addWidget(self.previous_button)
         self.title_label = QLabel()
         self.title_label.setObjectName("panelTitle")
-        self.title_label.setAlignment(Qt.AlignCenter)
-        toolbar.addWidget(self.title_label, 1)
+        self.decision_badge = QLabel("Unreviewed")
+        self.decision_badge.setObjectName("decisionBadge")
+        self.decision_badge.setAlignment(Qt.AlignCenter)
+        title_area = QWidget()
+        title_layout = QHBoxLayout(title_area)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(8)
+        title_layout.addStretch(1)
+        title_layout.addWidget(self.title_label)
+        title_layout.addWidget(self.decision_badge)
+        title_layout.addStretch(1)
+        toolbar.addWidget(title_area, 1)
         self.next_button = QPushButton("→")
         self.next_button.setProperty("kind", "quiet")
         self.next_button.setToolTip("Next photo")
@@ -117,18 +127,14 @@ class FullscreenPhotoDialog(QDialog):
         if photo is None:
             self.setWindowTitle("PhotoChoose")
             self.title_label.setText("No photo")
+            self._update_decision_badge(None)
             self.footer_label.setText("Esc to close")
             self.image_label.setText("No photograph to display")
             self._update_controls()
             return
         self.setWindowTitle(photo.filename)
-        self.title_label.setText(
-            "{0}    ·    {1}{2}".format(
-                photo.filename,
-                photo.decision.value.title(),
-                "    ·    Best" if photo.is_best else "",
-            )
-        )
+        self.title_label.setText(photo.filename)
+        self._update_decision_badge(photo)
         self.footer_label.setText(
             "{0} / {1}   ·   ← → navigate   ·   K Keep   R Review   X Reject   "
             "B Best   O evidence   Esc close".format(
@@ -137,6 +143,20 @@ class FullscreenPhotoDialog(QDialog):
         )
         self._load_image(photo.display_path)
         self._update_controls()
+
+    def _update_decision_badge(self, photo: Optional[Photo]) -> None:
+        if photo is None:
+            state = "unreviewed"
+            text = "Unreviewed"
+        else:
+            state = photo.decision.value
+            text = photo.decision.value.title()
+            if photo.is_best:
+                text += " · Best"
+        self.decision_badge.setText(text)
+        self.decision_badge.setProperty("state", state)
+        self.decision_badge.style().unpolish(self.decision_badge)
+        self.decision_badge.style().polish(self.decision_badge)
 
     def _load_image(self, image_path: str) -> None:
         self.image_label.clear()

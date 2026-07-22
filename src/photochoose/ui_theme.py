@@ -84,6 +84,33 @@ QLabel#panelTitle, QLabel#selectionTitle {
     font-weight: 600;
 }
 
+QLabel#decisionBadge {
+    color: #d8dade;
+    background: #303136;
+    border: 1px solid #424349;
+    border-radius: 3px;
+    padding: 3px 8px;
+    font-weight: 600;
+}
+
+QLabel#decisionBadge[state="keep"] {
+    color: #e4f2e9;
+    background: #315543;
+    border-color: #47705a;
+}
+
+QLabel#decisionBadge[state="review"] {
+    color: #f5ead6;
+    background: #5b4b30;
+    border-color: #77633e;
+}
+
+QLabel#decisionBadge[state="reject"] {
+    color: #f4e1e1;
+    background: #5b383b;
+    border-color: #75484c;
+}
+
 QLabel#statusKeep { color: #72b58f; font-weight: 600; }
 QLabel#statusReview { color: #d2a761; font-weight: 600; }
 QLabel#statusReject { color: #d97a7a; font-weight: 600; }
