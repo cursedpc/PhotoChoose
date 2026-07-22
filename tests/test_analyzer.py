@@ -376,6 +376,81 @@ class BaselineAnalyzerTests(unittest.TestCase):
         self.assertEqual(grouped[0].similarity_group, grouped[1].similarity_group)
         self.assertIn("1.25s", grouped[0].group_reason)
 
+    def test_project_best_limit_is_used_after_group_ranking(self) -> None:
+        for filename in ("burst-a.jpg", "burst-b.jpg", "burst-c.jpg"):
+            (self.shoot / filename).write_bytes(
+                self._jpeg_bytes(np.full((200, 300, 3), 120, dtype=np.uint8))
+            )
+        project = self.database.add_project(self.shoot)
+        self.database.scan_project(project.id)
+        self.database.set_project_best_count(project.id, 2)
+        photos = self.database.list_photos(project.id, PhotoView.ALL)
+        hashes = (
+            "0000000000000000",
+            "00000000000003ff",
+            "0000000003ff0000",
+        )
+        focus_scores = (500.0, 300.0, 200.0)
+        analyzed = []
+        for index, (photo, perceptual_hash, focus_score) in enumerate(
+            zip(photos, hashes, focus_scores)
+        ):
+            self.database.apply_analysis(
+                photo.id,
+                Decision.KEEP,
+                focus_score,
+                0.5,
+                0.0,
+                0.0,
+                photo.filename,
+                ("Passed",),
+                None,
+            )
+            self.database.apply_subject_analysis(
+                photo.id,
+                perceptual_hash,
+                0,
+                0,
+                0,
+                0,
+                None,
+                "none",
+                None,
+                None,
+            )
+            timed = replace(
+                photo,
+                decision=Decision.KEEP,
+                captured_at="2026-07-22T14:15:1{0}.000000".format(index),
+                camera_model="EOS R6",
+            )
+            analyzed.append(
+                (
+                    timed,
+                    AnalysisResult(
+                        decision=Decision.KEEP,
+                        focus_score=focus_score,
+                        brightness=0.5,
+                        clipped_dark=0.0,
+                        clipped_bright=0.0,
+                        content_hash=photo.filename,
+                        perceptual_hash=perceptual_hash,
+                        face_count=0,
+                        eye_count=0,
+                        subject_focus_score=None,
+                        reasons=("Passed",),
+                    ),
+                )
+            )
+
+        BaselineAnalyzer(self.database)._group_and_select_best(project.id, analyzed)
+
+        ranked = self.database.list_photos(project.id, PhotoView.ALL)
+        self.assertEqual(
+            {"burst-a.jpg", "burst-b.jpg"},
+            {photo.filename for photo in ranked if photo.is_best},
+        )
+
     def test_much_weaker_burst_frame_is_rejected_but_manual_review_is_safe(self) -> None:
         for filename in ("strong.jpg", "weak.jpg", "manual.jpg"):
             (self.shoot / filename).write_bytes(

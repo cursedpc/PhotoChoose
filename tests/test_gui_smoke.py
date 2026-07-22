@@ -54,6 +54,10 @@ class GuiSmokeTests(unittest.TestCase):
             self.assertTrue(all(photo.analysis_status == "complete" for photo in analyzed))
             self.assertEqual("safe", window.current_project.analysis_profile)
             self.assertEqual("Safe", window.analysis_profile_combo.currentText())
+            self.assertEqual(1, window.best_count_spin.value())
+            window.best_count_spin.setValue(2)
+            app.processEvents()
+            self.assertEqual(2, window.current_project.best_count_per_group)
 
             balanced_index = window.analysis_profile_combo.findData("balanced")
             window.analysis_profile_combo.setCurrentIndex(balanced_index)

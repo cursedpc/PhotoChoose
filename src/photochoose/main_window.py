@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QSpinBox,
     QSplitter,
     QTabBar,
     QVBoxLayout,
@@ -252,6 +253,17 @@ class MainWindow(QMainWindow):
         self.analysis_profile_status = QLabel("Safe default")
         self.analysis_profile_status.setStyleSheet("color: #808792;")
         title_row.addWidget(self.analysis_profile_status)
+        title_row.addSpacing(12)
+        title_row.addWidget(QLabel("Max Best/group:"))
+        self.best_count_spin = QSpinBox()
+        self.best_count_spin.setRange(1, 5)
+        self.best_count_spin.setValue(1)
+        self.best_count_spin.setToolTip(
+            "Choose up to this many visually distinct automatic Best frames per group"
+        )
+        self.best_count_spin.setEnabled(False)
+        self.best_count_spin.valueChanged.connect(self._best_count_changed)
+        title_row.addWidget(self.best_count_spin)
         layout.addLayout(title_row)
 
         self.project_path = QLabel("")
@@ -386,6 +398,7 @@ class MainWindow(QMainWindow):
         self.project_title.setText(project.name)
         self.project_path.setText(project.root_path)
         self._update_analysis_profile_controls()
+        self._update_best_count_control()
         self._update_project_action_buttons()
         self._refresh_photos()
 
@@ -429,6 +442,33 @@ class MainWindow(QMainWindow):
         else:
             self.analysis_profile_status.setText(ANALYSIS_VERSION)
             self.analysis_profile_status.setStyleSheet("color: #808792;")
+
+    @Slot(int)
+    def _best_count_changed(self, count: int) -> None:
+        if self.current_project is None:
+            return
+        if count == self.current_project.best_count_per_group:
+            return
+        automatic_count = self.database.set_project_best_count(
+            self.current_project.id, count
+        )
+        updated = self.database.get_project(self.current_project.id)
+        if updated is None:
+            return
+        self.current_project = updated
+        self._refresh_photos()
+        self.statusBar().showMessage(
+            "Up to {0} diverse Best per group · {1} automatic Best selected from "
+            "stored rankings".format(count, automatic_count),
+            10000,
+        )
+
+    def _update_best_count_control(self) -> None:
+        if self.current_project is None:
+            return
+        self.best_count_spin.blockSignals(True)
+        self.best_count_spin.setValue(self.current_project.best_count_per_group)
+        self.best_count_spin.blockSignals(False)
 
     @Slot(QPoint)
     def _show_project_context_menu(self, position: QPoint) -> None:
@@ -802,12 +842,17 @@ class MainWindow(QMainWindow):
         self.export_button.setEnabled(enabled)
         self.close_project_button.setEnabled(enabled)
         self.analysis_profile_combo.setEnabled(enabled)
+        self.best_count_spin.setEnabled(enabled)
 
     def _clear_current_project(self) -> None:
         self.current_project = None
         self.project_title.setText("No project selected")
         self.project_path.setText("")
         self.analysis_profile_combo.setEnabled(False)
+        self.best_count_spin.blockSignals(True)
+        self.best_count_spin.setValue(1)
+        self.best_count_spin.blockSignals(False)
+        self.best_count_spin.setEnabled(False)
         self.analysis_profile_status.setText("Safe default")
         self.analysis_profile_status.setStyleSheet("color: #808792;")
         self.photo_model.clear()

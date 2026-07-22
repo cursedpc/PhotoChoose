@@ -363,8 +363,10 @@ def _profile_label(profile: str) -> str:
 def _example_line(item: Mapping[str, object]) -> str:
     path = str(item["photo_path"] or "Photo #{0}".format(item["photo_id"]))
     if item["action_type"] == "best":
-        change = "Best {0} → {1}".format(
-            str(item["previous_value"]), str(item["new_value"])
+        change = "Best {0} → {1} · max/group {2}".format(
+            str(item["previous_value"]),
+            str(item["new_value"]),
+            item["best_count_per_group"] or "legacy",
         )
     else:
         change = "{0} → {1}".format(

@@ -79,6 +79,12 @@ not modify thresholds automatically. Small local tests validate the report machi
 meaningful threshold tuning and performance validation require representative large shoots on
 the target machine.
 
+The top panel also sets **Max Best/group** from 1–5. PhotoChoose reuses stored group rankings,
+so changing this value does not rerun image analysis. Automatic selections favor the highest
+scores while skipping near-identical perceptual hashes; the limit is therefore a maximum, not
+a promise to fill a group with redundant frames. Explicit manual Best choices are always
+preserved and count toward the selected maximum.
+
 The analysis intentionally sends uncertain soft images, confidently detected closed eyes,
 uncertain eye states, and very soft primary detected objects to `Review`; it does not reject
 a unique photograph solely from those model signals. Within a burst, open eyes and sharper

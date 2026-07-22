@@ -75,6 +75,7 @@ class CalibrationReportTests(unittest.TestCase):
         self.assertIn("Safe / profiles-v1", text)
         self.assertIn("global focus", text)
         self.assertIn("soft-", text)
+        self.assertIn("max/group 1", text)
 
 
 if __name__ == "__main__":
