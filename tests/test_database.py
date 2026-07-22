@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from photochoose.analysis_profiles import ANALYSIS_VERSION
 from photochoose.database import PhotoDatabase
 from photochoose.models import (
     Decision,
@@ -165,6 +166,70 @@ class PhotoDatabaseTests(unittest.TestCase):
         self.assertIn("raw_count", columns)
         self.assertIn("asset_key", columns)
         self.assertIn("is_open", project_columns)
+        self.assertIn("analysis_profile", columns)
+        self.assertIn("analysis_version", columns)
+        self.assertIn("analysis_profile", project_columns)
+        migrated = sqlite3.connect(str(old_path))
+        tables = {
+            row[0]
+            for row in migrated.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        migrated.close()
+        self.assertIn("manual_overrides", tables)
+
+    def test_profile_change_is_explicit_and_manual_overrides_are_local(self) -> None:
+        self._write_photo("one.jpg")
+        project = self.database.add_project(self.shoot)
+        self.database.scan_project(project.id)
+        photo = self.database.list_photos(project.id, PhotoView.ALL)[0]
+        self.database.apply_analysis(
+            photo.id,
+            Decision.REVIEW,
+            18.0,
+            0.5,
+            0.0,
+            0.0,
+            "hash",
+            ("Possibly soft",),
+            None,
+        )
+
+        self.database.set_decision([photo.id], Decision.KEEP)
+        self.database.toggle_best([photo.id])
+        self.database.set_project_analysis_profile(project.id, "balanced")
+
+        updated_project = self.database.get_project(project.id)
+        stale = self.database.list_photos(project.id, PhotoView.ALL)[0]
+        overrides = self.database.list_manual_overrides(project.id)
+        self.assertEqual("balanced", updated_project.analysis_profile)
+        self.assertEqual("stale", stale.analysis_status)
+        self.assertEqual(Decision.KEEP, stale.decision)
+        self.assertEqual("manual", stale.decision_source)
+        self.assertTrue(stale.is_best)
+        self.assertEqual(["decision", "best"], [item["action_type"] for item in overrides])
+        self.assertEqual("automatic", overrides[0]["previous_source"])
+        self.assertEqual("safe", overrides[0]["analysis_profile"])
+        self.assertEqual(ANALYSIS_VERSION, overrides[0]["analysis_version"])
+
+        self.database.apply_analysis(
+            photo.id,
+            Decision.REJECT,
+            18.0,
+            0.5,
+            0.0,
+            0.0,
+            "hash",
+            ("Strict recommendation",),
+            None,
+            analysis_profile="balanced",
+        )
+        reanalyzed = self.database.list_photos(project.id, PhotoView.ALL)[0]
+        self.assertEqual("complete", reanalyzed.analysis_status)
+        self.assertEqual("balanced", reanalyzed.analysis_profile)
+        self.assertEqual(Decision.KEEP, reanalyzed.decision)
+        self.assertEqual("manual", reanalyzed.decision_source)
 
     def test_subject_evidence_round_trips_through_database(self) -> None:
         self._write_photo("one.jpg")

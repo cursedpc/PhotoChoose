@@ -25,6 +25,7 @@ class Project:
     id: int
     name: str
     root_path: str
+    analysis_profile: str = "safe"
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,8 @@ class Photo:
     is_best: bool
     decision_source: str = "none"
     analysis_status: str = "pending"
+    analysis_profile: Optional[str] = None
+    analysis_version: Optional[str] = None
     focus_score: Optional[float] = None
     brightness: Optional[float] = None
     clipped_dark: Optional[float] = None

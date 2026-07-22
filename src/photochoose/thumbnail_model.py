@@ -88,7 +88,11 @@ class PhotoListModel(QAbstractListModel):
                 "Files: {0}".format(photo.file_summary),
                 "Decision: {0} ({1})".format(photo.decision.value, photo.decision_source),
                 "Best: {0} ({1})".format(best, photo.best_source),
-                "Analysis: {0}".format(photo.analysis_status),
+                "Analysis: {0} · {1} / {2}".format(
+                    photo.analysis_status,
+                    (photo.analysis_profile or "—").title(),
+                    photo.analysis_version or "—",
+                ),
             ]
             if photo.focus_score is not None:
                 lines.append("Focus score: {0:.2f}".format(photo.focus_score))

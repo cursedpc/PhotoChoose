@@ -5,11 +5,17 @@ import math
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
 
+from photochoose.analysis_profiles import (
+    ANALYSIS_VERSION,
+    SAFE_PROFILE,
+    AnalysisProfile,
+    get_analysis_profile,
+)
 from photochoose.database import PhotoDatabase
 from photochoose.models import Decision, FaceEvidence, ObjectEvidence, Photo, PhotoView
 from photochoose.object_models import GeneralSubjectAnalyzer
@@ -21,7 +27,6 @@ NEAR_DUPLICATE_DISTANCE = 8
 BURST_SIMILARITY_DISTANCE = 20
 BURST_GAP_SECONDS = 2.0
 GROUP_COMPARISON_WINDOW = 12
-RELATIVE_REJECT_SCORE_GAP = 25.0
 
 
 @dataclass(frozen=True)
@@ -59,8 +64,13 @@ class AnalysisResult:
 class BaselineAnalyzer:
     """CPU analysis for technical failures, faces, similarity, and group ranking."""
 
-    def __init__(self, database: PhotoDatabase) -> None:
+    def __init__(
+        self,
+        database: PhotoDatabase,
+        profile: Union[AnalysisProfile, str] = SAFE_PROFILE,
+    ) -> None:
         self.database = database
+        self.profile = get_analysis_profile(profile)
         self.subject_analyzer = ModelSubjectAnalyzer()
         self.object_analyzer = GeneralSubjectAnalyzer()
         cascade_root = Path(cv2.data.haarcascades)
@@ -100,6 +110,8 @@ class BaselineAnalyzer:
                 result.reasons,
                 result.duplicate_of_id,
                 result.status,
+                self.profile.key,
+                ANALYSIS_VERSION,
             )
             self.database.apply_subject_analysis(
                 photo.id,
@@ -258,6 +270,9 @@ class BaselineAnalyzer:
             important_uncertain_eye_count,
             object_result.primary_focus_score,
             object_result.model_name,
+            face_confidence,
+            eye_open_score,
+            self.profile,
         )
         return AnalysisResult(
             decision=decision,
@@ -452,7 +467,10 @@ class BaselineAnalyzer:
                 self.database.set_automatic_best(winner.id)
                 for photo, score in scored:
                     score_gap = winner_score - score
-                    if photo.id != winner.id and score_gap >= RELATIVE_REJECT_SCORE_GAP:
+                    if (
+                        photo.id != winner.id
+                        and score_gap >= self.profile.relative_reject_score_gap
+                    ):
                         self.database.reject_weaker_group_photo(
                             photo.id,
                             group_id,
@@ -595,21 +613,30 @@ class BaselineAnalyzer:
         important_uncertain_eye_count: Optional[int] = None,
         primary_subject_focus: Optional[float] = None,
         object_model: str = "none",
+        face_confidence: Optional[float] = None,
+        eye_open_score: Optional[float] = None,
+        profile: AnalysisProfile = SAFE_PROFILE,
     ) -> Tuple[Decision, Tuple[str, ...]]:
         if clipped_dark >= 0.98:
-            return Decision.REJECT, ("Almost entirely black",)
+            return Decision.REVIEW, ("Almost entirely black",)
         if clipped_bright >= 0.98:
-            return Decision.REJECT, ("Almost entirely white or clipped",)
+            return Decision.REVIEW, ("Almost entirely white or clipped",)
 
         reasons = []
-        if focus_score < 8.0:
+        if focus_score < profile.severe_focus_threshold:
             reasons.append("Very low detail; possible severe blur")
-        elif focus_score < 30.0:
+        elif focus_score < profile.focus_review_threshold:
             reasons.append("Possibly soft or out of focus")
 
-        if brightness < 0.08 or clipped_dark >= 0.75:
+        if (
+            brightness < profile.dark_brightness_threshold
+            or clipped_dark >= profile.clipped_exposure_threshold
+        ):
             reasons.append("Very dark exposure")
-        elif brightness > 0.92 or clipped_bright >= 0.75:
+        elif (
+            brightness > profile.bright_brightness_threshold
+            or clipped_bright >= profile.clipped_exposure_threshold
+        ):
             reasons.append("Very bright exposure")
 
         considered_faces = (
@@ -629,8 +656,16 @@ class BaselineAnalyzer:
             else important_uncertain_eye_count
         )
         if considered_faces:
-            if subject_focus is not None and subject_focus < 20.0:
+            if (
+                subject_focus is not None
+                and subject_focus < profile.face_focus_threshold
+            ):
                 reasons.append("At least one important face appears soft")
+            if (
+                face_confidence is not None
+                and face_confidence < profile.face_confidence_threshold
+            ):
+                reasons.append("Important face detection is not fully confident")
             if considered_closed_eyes:
                 reasons.append(
                     "{0} detected eye{1} appear{2} closed".format(
@@ -644,11 +679,16 @@ class BaselineAnalyzer:
                 or considered_open_eyes + considered_closed_eyes < considered_faces * 2
             ):
                 reasons.append("Eyes are not confidently visible on every important face")
+            elif (
+                eye_open_score is not None
+                and eye_open_score < profile.eye_open_score_threshold
+            ):
+                reasons.append("Eye openness is borderline on an important face")
 
         if (
             object_model.startswith("nanodet")
             and primary_subject_focus is not None
-            and primary_subject_focus < 20.0
+            and primary_subject_focus < profile.object_focus_threshold
         ):
             reasons.append("At least one primary detected subject appears soft")
 

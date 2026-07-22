@@ -286,16 +286,18 @@ The next active slice extends subject-aware analysis beyond portraits:
 **Exit:** non-portrait photographs receive inspectable primary-subject focus evidence on
 the current CPU backend without weakening PhotoChoose's false-reject protections.
 
-## Next implementation slice
+## Current implementation slice
 
 The next active slice is photographer calibration and controlled scoring:
 
-1. Add a small settings panel for separation strictness while keeping a safe default.
-2. Store the threshold/profile version with each analysis so rescans remain explainable.
-3. Build a private corpus report comparing recommendations with manual overrides.
-4. Tune global, face, eye, and object-focus thresholds from real shoots rather than isolated
-   examples.
-5. Add controls for Best-shot count per group and protect visually distinct alternatives.
+Safe, Balanced, and Strict profiles now control global, exposure, face, eye, object-focus,
+and within-burst separation thresholds. The chosen project profile and analysis version are
+stored with every result. Changing profiles explicitly marks existing analysis stale, while
+manual decisions and Best flags remain protected. Manual changes are recorded as private,
+local calibration events.
+
+The next slice will turn that evidence into a corpus report, tune thresholds from real shoots,
+add controls for Best-shot count per group, and protect visually distinct alternatives.
 
 ## Current implementation status
 

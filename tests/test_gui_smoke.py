@@ -52,6 +52,20 @@ class GuiSmokeTests(unittest.TestCase):
             self.assertEqual(3, window.photo_model.rowCount())
             analyzed = window.database.list_photos(project.id, PhotoView.ALL)
             self.assertTrue(all(photo.analysis_status == "complete" for photo in analyzed))
+            self.assertEqual("safe", window.current_project.analysis_profile)
+            self.assertEqual("Safe", window.analysis_profile_combo.currentText())
+
+            balanced_index = window.analysis_profile_combo.findData("balanced")
+            window.analysis_profile_combo.setCurrentIndex(balanced_index)
+            app.processEvents()
+            self.assertEqual("balanced", window.current_project.analysis_profile)
+            self.assertTrue(
+                all(
+                    photo.analysis_status == "stale"
+                    for photo in window.database.list_photos(project.id, PhotoView.ALL)
+                )
+            )
+            self.assertIn("Reanalysis required", window.analysis_profile_status.text())
 
             selection = window.photo_grid.selectionModel()
             selection.select(
@@ -61,6 +75,7 @@ class GuiSmokeTests(unittest.TestCase):
             self.assertEqual(Qt.CustomContextMenu, window.project_list.contextMenuPolicy())
             self.assertEqual(Qt.CustomContextMenu, window.photo_grid.contextMenuPolicy())
             self.assertIn("frame-0.bmp", window.inspector.details_label.text())
+            self.assertIn("Profile: Safe / profiles-v1", window.inspector.details_label.text())
             self.assertIn(
                 "Model: yunet+face-mesh-litert",
                 window.inspector.details_label.text(),
