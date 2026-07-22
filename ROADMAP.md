@@ -298,10 +298,14 @@ local calibration events. A local calibration report summarizes disagreements by
 signal, snapshots the evidence behind each correction, and emits suggestions only after a
 minimum repeated sample count. It never changes thresholds automatically.
 
+Projects now also store a 1–5 maximum for automatic Best frames per group. Best reselection uses
+stored rankings immediately, preserves all manual Best choices, and requires a minimum perceptual
+distance between automatic selections so the configured maximum does not fill with nearly
+identical frames.
+
 Real threshold tuning and performance validation are deliberately deferred until representative
-large shoots can run on the target machine. The next implementation slice can add controls for
-Best-shot count per group and protect visually distinct alternatives without claiming corpus
-calibration yet.
+large shoots can run on the target machine. The next implementation slice can improve obscured
+eye/glasses handling and prepare Windows/OpenVINO validation without claiming corpus calibration.
 
 ## Current implementation status
 

@@ -26,6 +26,7 @@ class Project:
     name: str
     root_path: str
     analysis_profile: str = "safe"
+    best_count_per_group: int = 1
 
 
 @dataclass(frozen=True)

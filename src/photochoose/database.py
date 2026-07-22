@@ -49,6 +49,8 @@ class PhotoDatabase:
                     is_open INTEGER NOT NULL DEFAULT 1 CHECK (is_open IN (0, 1)),
                     analysis_profile TEXT NOT NULL DEFAULT 'safe'
                         CHECK (analysis_profile IN ('safe', 'balanced', 'strict')),
+                    best_count_per_group INTEGER NOT NULL DEFAULT 1
+                        CHECK (best_count_per_group BETWEEN 1 AND 5),
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     last_opened_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
@@ -144,6 +146,7 @@ class PhotoDatabase:
                     primary_subject_focus_score REAL,
                     best_score REAL,
                     similarity_group TEXT,
+                    best_count_per_group INTEGER,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
 
@@ -167,6 +170,11 @@ class PhotoDatabase:
             connection.execute(
                 "ALTER TABLE projects ADD COLUMN analysis_profile "
                 "TEXT NOT NULL DEFAULT 'safe'"
+            )
+        if "best_count_per_group" not in existing:
+            connection.execute(
+                "ALTER TABLE projects ADD COLUMN best_count_per_group "
+                "INTEGER NOT NULL DEFAULT 1"
             )
 
     @staticmethod
@@ -255,6 +263,7 @@ class PhotoDatabase:
             "primary_subject_focus_score": "REAL",
             "best_score": "REAL",
             "similarity_group": "TEXT",
+            "best_count_per_group": "INTEGER",
         }
         for name, definition in definitions.items():
             if name not in existing:
@@ -282,7 +291,8 @@ class PhotoDatabase:
                 (root.name or str(root), str(root)),
             )
             row = connection.execute(
-                "SELECT id, name, root_path, analysis_profile FROM projects WHERE root_path = ?",
+                "SELECT id, name, root_path, analysis_profile, best_count_per_group "
+                "FROM projects WHERE root_path = ?",
                 (str(root),),
             ).fetchone()
             connection.commit()
@@ -292,7 +302,7 @@ class PhotoDatabase:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
-                SELECT id, name, root_path, analysis_profile
+                SELECT id, name, root_path, analysis_profile, best_count_per_group
                 FROM projects
                 WHERE is_open = 1
                 ORDER BY last_opened_at DESC, name COLLATE NOCASE
@@ -303,7 +313,8 @@ class PhotoDatabase:
     def get_project(self, project_id: int) -> Optional[Project]:
         with closing(self._connect()) as connection:
             row = connection.execute(
-                "SELECT id, name, root_path, analysis_profile FROM projects WHERE id = ?",
+                "SELECT id, name, root_path, analysis_profile, best_count_per_group "
+                "FROM projects WHERE id = ?",
                 (project_id,),
             ).fetchone()
         return self._project_from_row(row) if row else None
@@ -676,11 +687,17 @@ class PhotoDatabase:
                        face_count, eye_count, closed_eye_count, uncertain_eye_count,
                        subject_focus_score, face_confidence, eye_open_score,
                        eye_focus_score, object_count, primary_subject_focus_score,
-                       best_score, similarity_group
+                       best_score, similarity_group,
+                       (SELECT best_count_per_group FROM projects
+                        WHERE id = photos.project_id) AS best_count_per_group
                 FROM photos WHERE id IN ({0})
                 """.format(placeholders),
                 list(photo_ids),
             ).fetchall()
+            selection_configs = {
+                (int(row["project_id"]), int(row["best_count_per_group"] or 1))
+                for row in rows
+            }
             for row in rows:
                 if row["decision"] == decision.value and row["decision_source"] == source:
                     continue
@@ -693,10 +710,11 @@ class PhotoDatabase:
                         clipped_bright, face_count, eye_count, closed_eye_count,
                         uncertain_eye_count, subject_focus_score, face_confidence,
                         eye_open_score, eye_focus_score, object_count,
-                        primary_subject_focus_score, best_score, similarity_group
+                        primary_subject_focus_score, best_score, similarity_group,
+                        best_count_per_group
                     ) VALUES (
                         ?, ?, 'decision', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                     )
                     """,
                     (
@@ -725,6 +743,7 @@ class PhotoDatabase:
                         row["primary_subject_focus_score"],
                         row["best_score"],
                         row["similarity_group"],
+                        row["best_count_per_group"],
                     ),
                 )
             connection.execute(
@@ -735,6 +754,8 @@ class PhotoDatabase:
                 [decision.value, source] + list(photo_ids),
             )
             connection.commit()
+        for project_id, count in selection_configs:
+            self.select_automatic_best(project_id, count)
 
     def apply_analysis(
         self,
@@ -807,11 +828,17 @@ class PhotoDatabase:
                        face_count, eye_count, closed_eye_count, uncertain_eye_count,
                        subject_focus_score, face_confidence, eye_open_score,
                        eye_focus_score, object_count, primary_subject_focus_score,
-                       best_score, similarity_group
+                       best_score, similarity_group,
+                       (SELECT best_count_per_group FROM projects
+                        WHERE id = photos.project_id) AS best_count_per_group
                 FROM photos WHERE id IN ({0})
                 """.format(placeholders),
                 list(photo_ids),
             ).fetchall()
+            selection_configs = {
+                (int(row["project_id"]), int(row["best_count_per_group"] or 1))
+                for row in rows
+            }
             for row in rows:
                 connection.execute(
                     """
@@ -822,10 +849,11 @@ class PhotoDatabase:
                         clipped_bright, face_count, eye_count, closed_eye_count,
                         uncertain_eye_count, subject_focus_score, face_confidence,
                         eye_open_score, eye_focus_score, object_count,
-                        primary_subject_focus_score, best_score, similarity_group
+                        primary_subject_focus_score, best_score, similarity_group,
+                        best_count_per_group
                     ) VALUES (
                         ?, ?, 'best', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                     )
                     """,
                     (
@@ -854,6 +882,7 @@ class PhotoDatabase:
                         row["primary_subject_focus_score"],
                         row["best_score"],
                         row["similarity_group"],
+                        row["best_count_per_group"],
                     ),
                 )
             connection.execute(
@@ -866,6 +895,8 @@ class PhotoDatabase:
                 list(photo_ids),
             )
             connection.commit()
+        for project_id, count in selection_configs:
+            self.select_automatic_best(project_id, count)
 
     def set_project_analysis_profile(self, project_id: int, profile: str) -> None:
         """Select a profile without silently re-running or replacing old decisions."""
@@ -901,6 +932,100 @@ class PhotoDatabase:
             ).fetchone()
         return int(row["total"])
 
+    def set_project_best_count(self, project_id: int, count: int) -> int:
+        """Persist a per-group limit and immediately refresh automatic Best flags."""
+
+        if not 1 <= count <= 5:
+            raise ValueError("Best count per group must be between 1 and 5")
+        with closing(self._connect()) as connection:
+            result = connection.execute(
+                "UPDATE projects SET best_count_per_group = ? WHERE id = ?",
+                (count, project_id),
+            )
+            if result.rowcount == 0:
+                raise ValueError("Unknown project id: {0}".format(project_id))
+            connection.commit()
+        return self.select_automatic_best(project_id, count)
+
+    def select_automatic_best(
+        self,
+        project_id: int,
+        count_per_group: int,
+        minimum_hash_distance: int = 9,
+    ) -> int:
+        """Select up to N diverse automatic Best frames while preserving manual flags."""
+
+        if not 1 <= count_per_group <= 5:
+            raise ValueError("Best count per group must be between 1 and 5")
+        with closing(self._connect()) as connection:
+            connection.execute(
+                """
+                UPDATE photos
+                SET is_best = 0, best_source = 'none'
+                WHERE project_id = ? AND best_source = 'automatic'
+                """,
+                (project_id,),
+            )
+            rows = connection.execute(
+                """
+                SELECT id, relative_path, decision, is_best, best_source,
+                       similarity_group, best_score, perceptual_hash
+                FROM photos
+                WHERE project_id = ? AND similarity_group IS NOT NULL
+                ORDER BY similarity_group, best_score DESC, relative_path COLLATE NOCASE
+                """,
+                (project_id,),
+            ).fetchall()
+            groups: Dict[str, List[sqlite3.Row]] = {}
+            for row in rows:
+                groups.setdefault(row["similarity_group"], []).append(row)
+
+            selected_ids = []
+            for items in groups.values():
+                manual_best = [
+                    row
+                    for row in items
+                    if row["best_source"] == "manual" and row["is_best"]
+                ]
+                remaining = max(0, count_per_group - len(manual_best))
+                selected_hashes = [
+                    row["perceptual_hash"]
+                    for row in manual_best
+                    if row["perceptual_hash"]
+                ]
+                candidates = [
+                    row
+                    for row in items
+                    if row["decision"] != Decision.REJECT.value
+                    and row["best_source"] != "manual"
+                    and row["best_score"] is not None
+                ]
+                for candidate in candidates:
+                    if remaining == 0:
+                        break
+                    candidate_hash = candidate["perceptual_hash"]
+                    if candidate_hash and any(
+                        self._hash_distance(candidate_hash, selected_hash)
+                        < minimum_hash_distance
+                        for selected_hash in selected_hashes
+                    ):
+                        continue
+                    selected_ids.append(candidate["id"])
+                    if candidate_hash:
+                        selected_hashes.append(candidate_hash)
+                    remaining -= 1
+
+            if selected_ids:
+                connection.executemany(
+                    """
+                    UPDATE photos SET is_best = 1, best_source = 'automatic'
+                    WHERE id = ? AND best_source != 'manual'
+                    """,
+                    [(photo_id,) for photo_id in selected_ids],
+                )
+            connection.commit()
+        return len(selected_ids)
+
     def list_manual_overrides(self, project_id: int) -> List[Dict[str, object]]:
         """Return local calibration evidence without reading or exporting image data."""
 
@@ -914,7 +1039,7 @@ class PhotoDatabase:
                        uncertain_eye_count, subject_focus_score, face_confidence,
                        eye_open_score, eye_focus_score, object_count,
                        primary_subject_focus_score, best_score, similarity_group,
-                       created_at
+                       best_count_per_group, created_at
                 FROM manual_overrides
                 WHERE project_id = ?
                 ORDER BY id
@@ -1110,7 +1235,12 @@ class PhotoDatabase:
             name=row["name"],
             root_path=row["root_path"],
             analysis_profile=row["analysis_profile"],
+            best_count_per_group=row["best_count_per_group"],
         )
+
+    @staticmethod
+    def _hash_distance(left: str, right: str) -> int:
+        return bin(int(left, 16) ^ int(right, 16)).count("1")
 
     @staticmethod
     def _legacy_asset_key(relative_path: str) -> str:

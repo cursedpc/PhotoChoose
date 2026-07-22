@@ -27,6 +27,7 @@ NEAR_DUPLICATE_DISTANCE = 8
 BURST_SIMILARITY_DISTANCE = 20
 BURST_GAP_SECONDS = 2.0
 GROUP_COMPARISON_WINDOW = 12
+MIN_BEST_HASH_DISTANCE = NEAR_DUPLICATE_DISTANCE + 1
 
 
 @dataclass(frozen=True)
@@ -464,7 +465,6 @@ class BaselineAnalyzer:
             ]
             if candidates:
                 winner, winner_score = max(candidates, key=lambda item: item[1])
-                self.database.set_automatic_best(winner.id)
                 for photo, score in scored:
                     score_gap = winner_score - score
                     if (
@@ -477,6 +477,14 @@ class BaselineAnalyzer:
                             winner.filename,
                             score_gap,
                         )
+
+        project = self.database.get_project(project_id)
+        if project is not None:
+            self.database.select_automatic_best(
+                project_id,
+                project.best_count_per_group,
+                MIN_BEST_HASH_DISTANCE,
+            )
 
     @staticmethod
     def _capture_gap_seconds(left: Photo, right: Photo) -> Optional[float]:
