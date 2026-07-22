@@ -72,6 +72,13 @@ new profile. Every result stores its profile and analysis version for later insp
 Manual decision and Best changes are recorded only in the local SQLite database as private
 calibration evidence; photographs and calibration history are never uploaded.
 
+Open **Calibration report…** for the selected project to summarize automatic-versus-manual
+decision disagreements, Best corrections, affected analysis signals, and profile versions.
+Suggestions require repeated matching corrections and remain informational: PhotoChoose does
+not modify thresholds automatically. Small local tests validate the report machinery, while
+meaningful threshold tuning and performance validation require representative large shoots on
+the target machine.
+
 The analysis intentionally sends uncertain soft images, confidently detected closed eyes,
 uncertain eye states, and very soft primary detected objects to `Review`; it does not reject
 a unique photograph solely from those model signals. Within a burst, open eyes and sharper

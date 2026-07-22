@@ -89,6 +89,10 @@ class GuiSmokeTests(unittest.TestCase):
                 [action.text() for action in window._project_context_menu().actions()],
             )
             self.assertIn(
+                "Calibration report…",
+                [action.text() for action in window._project_context_menu().actions()],
+            )
+            self.assertIn(
                 "Toggle Best",
                 [action.text() for action in window._photo_context_menu().actions()],
             )
@@ -99,6 +103,20 @@ class GuiSmokeTests(unittest.TestCase):
             window.inspector.toggle_button.setChecked(True)
             self.assertFalse(window.inspector.contents.isHidden())
             window._set_decision(Decision.KEEP)
+            window._open_calibration_report()
+            app.processEvents()
+            self.assertIsNotNone(window.calibration_dialog)
+            self.assertIn(
+                "Private calibration report",
+                window.calibration_dialog.report_text.toPlainText(),
+            )
+            self.assertIn(
+                "target machine",
+                window.calibration_dialog.report_text.toPlainText(),
+            )
+            window.calibration_dialog.reject()
+            app.processEvents()
+            self.assertIsNone(window.calibration_dialog)
             selection.select(
                 window.photo_model.index(0, 0),
                 QItemSelectionModel.ClearAndSelect,
