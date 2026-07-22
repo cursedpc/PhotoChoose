@@ -14,6 +14,8 @@ MODEL_DIRECTORY = Path(__file__).with_name("model_assets")
 OBJECT_MODEL_PATH = MODEL_DIRECTORY / "object_detection_nanodet_2022nov.onnx"
 OBJECT_INPUT_SIZE = (416, 416)
 OBJECT_CONFIDENCE_THRESHOLD = 0.35
+OBJECT_EVIDENCE_CONFIDENCE = 0.42
+PERSON_EVIDENCE_CONFIDENCE = 0.36
 OBJECT_NMS_THRESHOLD = 0.60
 OBJECT_STRIDES = (8, 16, 32)
 OBJECT_REG_MAX = 7
@@ -221,6 +223,13 @@ class GeneralSubjectAnalyzer:
             normalized = (x1 / width, y1 / height, box_width / width, box_height / height)
             confidence = float(detection[4])
             class_id = int(detection[5])
+            minimum_confidence = (
+                PERSON_EVIDENCE_CONFIDENCE
+                if COCO_CLASSES[class_id] == "person"
+                else OBJECT_EVIDENCE_CONFIDENCE
+            )
+            if confidence < minimum_confidence:
+                continue
             focus = self._region_focus(image, normalized)
             area = normalized[2] * normalized[3]
             center_x = normalized[0] + normalized[2] / 2.0

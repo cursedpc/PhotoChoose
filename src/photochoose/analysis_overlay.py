@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, Tuple
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPolygonF
 
-from photochoose.models import EyeEvidence, Photo
+from photochoose.models import EyeEvidence, FaceEvidence, ObjectEvidence, Photo
+
+MAX_CROWDED_FACES = 6
+MAX_CROWDED_OBJECTS = 4
 
 EYE_COLORS: Dict[str, QColor] = {
     "open": QColor("#35d07f"),
@@ -43,13 +46,14 @@ def paint_analysis_evidence(
     photo: Photo,
     show_labels: bool,
 ) -> None:
-    """Paint normalized face and eye evidence into an image's displayed rectangle."""
+    """Paint normalized subject, face, and eye evidence into the displayed image."""
 
     if not (photo.subject_regions or photo.subject_objects) or image_rect.isEmpty():
         return
+    visible_objects, visible_faces, crowded = _visible_evidence(photo)
     painter.save()
     painter.setClipRect(image_rect)
-    for item in photo.subject_objects:
+    for object_index, item in enumerate(visible_objects):
         x, y, width, height = item.bounds
         object_rect = QRectF(
             image_rect.left() + x * image_rect.width(),
@@ -66,7 +70,8 @@ def paint_analysis_evidence(
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
         painter.drawRoundedRect(object_rect, 4.0, 4.0)
-        if show_labels and object_scale >= 48.0:
+        label_limit = 2 if crowded else 4
+        if show_labels and object_index < label_limit and object_scale >= 48.0:
             font = painter.font()
             font.setPixelSize(max(8, min(12, round(object_scale / 18.0))))
             painter.setFont(font)
@@ -80,13 +85,14 @@ def paint_analysis_evidence(
                 painter,
                 object_rect.left(),
                 max(image_rect.top(), object_rect.top() - label_height),
-                "{0} · {1} · focus {2}".format(
-                    item.label, item.importance, focus
+                "{0} · focus {1}".format(
+                    "Subject" if item.importance == "primary" else "Supporting",
+                    focus,
                 ),
                 color,
                 image_rect,
             )
-    for index, face in enumerate(photo.subject_regions, start=1):
+    for index, face in enumerate(visible_faces, start=1):
         x, y, width, height = face.bounds
         face_rect = QRectF(
             image_rect.left() + x * image_rect.width(),
@@ -104,7 +110,8 @@ def paint_analysis_evidence(
         painter.setBrush(Qt.NoBrush)
         painter.drawRoundedRect(face_rect, 4.0, 4.0)
 
-        if show_labels and face_scale >= 54.0:
+        face_label_limit = 3 if crowded else 6
+        if show_labels and index <= face_label_limit and face_scale >= 54.0:
             font = painter.font()
             font.setPixelSize(max(8, min(13, round(face_scale / 15.0))))
             painter.setFont(font)
@@ -126,10 +133,55 @@ def paint_analysis_evidence(
                 image_rect,
                 eye,
                 line_width,
-                show_labels and face_scale >= 125.0,
+                show_labels
+                and not crowded
+                and len(visible_faces) <= 3
+                and face_scale >= 125.0,
                 face_scale,
             )
     painter.restore()
+
+
+def _visible_evidence(
+    photo: Photo,
+) -> Tuple[Tuple[ObjectEvidence, ...], Tuple[FaceEvidence, ...], bool]:
+    """Choose useful overlay evidence without turning crowded scenes into diagrams."""
+
+    objects = tuple(
+        item
+        for item in photo.subject_objects
+        if item.importance != "background"
+        and not (photo.subject_regions and item.label == "person")
+    )
+    faces = photo.subject_regions
+    crowded = len(faces) > 4 or len(objects) + len(faces) > 6
+    if not crowded:
+        return objects, faces, False
+
+    ranked_objects = sorted(
+        objects,
+        key=lambda item: (
+            item.importance == "primary",
+            item.confidence * item.bounds[2] * item.bounds[3],
+        ),
+        reverse=True,
+    )
+    ranked_faces = sorted(
+        faces,
+        key=lambda face: (
+            face.important,
+            face.confidence * face.bounds[2] * face.bounds[3],
+        ),
+        reverse=True,
+    )
+    important_faces = tuple(face for face in ranked_faces if face.important)
+    if not important_faces:
+        important_faces = tuple(ranked_faces)
+    return (
+        tuple(ranked_objects[:MAX_CROWDED_OBJECTS]),
+        important_faces[:MAX_CROWDED_FACES],
+        True,
+    )
 
 
 def _paint_eye(

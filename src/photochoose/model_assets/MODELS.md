@@ -37,4 +37,8 @@ region. If none of its 80 classes is detected, a model-free spectral-saliency fa
 identify one unlabeled prominent region. Saliency-only evidence can influence relative Best
 ranking but cannot independently send a photograph to Review.
 
+Non-person detections below 42% confidence and person detections below 36% are discarded.
+The remaining class name is still only the model's most likely COCO-80 guess; PhotoChoose
+uses the region and focus evidence independently of whether that name is semantically exact.
+
 The models run locally. PhotoChoose performs no model download at runtime.

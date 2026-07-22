@@ -37,8 +37,11 @@ PhotoChoose is a private, local-first desktop application for professional photo
 - Inspect focus, exposure, face/eye/object, similarity, ranking, and decision reasons in a
   collapsible panel above the thumbnail grid.
 - Toggle the **Analysis overlay** (`O`) in the grid, fullscreen viewer, or comparison view
-  to inspect primary/supporting/background object and face boxes,
+  to inspect primary/supporting object boxes and primary/background face boxes,
   open/closed/uncertain eye geometry, and local sharpness measurements.
+- Automatically declutter crowded overlays: face evidence replaces redundant person boxes,
+  background object guesses stay hidden, the strongest regions are capped, and text labels
+  are reduced before useful eye-state colors and primary focus boxes.
 - Right-click photographs to open fullscreen or apply Keep, Review, Reject, Clear,
   and Best decisions to the selection.
 - Open **Compare group** for any blue `B####` burst or gray `G####` similarity badge.
@@ -69,6 +72,11 @@ primary subjects improve ranking. The current face models work best on sufficien
 near-frontal faces, and the general detector recognizes only its COCO-80 classes. Profiles,
 heavily obscured eyes, very small faces, expressions, uncatalogued subjects, and all
 thresholds still need photographer-corpus calibration.
+
+Object class names are confidence-qualified model guesses, not authoritative metadata. A
+wrong class name can still surround the correct subject and provide a useful regional-focus
+measurement. PhotoChoose therefore keeps class names out of the normal overlay and exposes
+them as `Likely …` details in the photograph tooltip.
 
 ## Local subject models
 

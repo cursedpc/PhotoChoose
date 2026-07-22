@@ -61,10 +61,10 @@ class GeneralSubjectModelTests(unittest.TestCase):
         self.assertIsNotNone(blurred_score)
         self.assertGreater(sharp_score, blurred_score)
 
-    def test_tiny_low_confidence_object_is_not_promoted_to_primary(self) -> None:
+    def test_tiny_moderate_confidence_object_is_not_promoted_to_primary(self) -> None:
         image = np.zeros((416, 416, 3), dtype=np.uint8)
         detections = np.asarray(
-            [[10.0, 10.0, 25.0, 25.0, 0.40, 2.0]], dtype=np.float32
+            [[10.0, 10.0, 25.0, 25.0, 0.43, 2.0]], dtype=np.float32
         )
         analyzer = GeneralSubjectAnalyzer(inference=lambda _blob: ())
 
@@ -72,6 +72,17 @@ class GeneralSubjectModelTests(unittest.TestCase):
 
         self.assertEqual(1, len(objects))
         self.assertNotEqual("primary", objects[0].importance)
+
+    def test_weak_non_person_guess_is_suppressed(self) -> None:
+        image = np.zeros((416, 416, 3), dtype=np.uint8)
+        detections = np.asarray(
+            [[40.0, 40.0, 300.0, 300.0, 0.39, 56.0]], dtype=np.float32
+        )
+        analyzer = GeneralSubjectAnalyzer(inference=lambda _blob: ())
+
+        objects = analyzer._object_evidence(image, detections, (0, 0, 416, 416))
+
+        self.assertEqual((), objects)
 
 
 if __name__ == "__main__":
