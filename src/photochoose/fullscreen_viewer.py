@@ -18,6 +18,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
+    QFrame,
     QGestureEvent,
     QHBoxLayout,
     QLabel,
@@ -55,58 +56,70 @@ class FullscreenPhotoDialog(QDialog):
         self._current_image = QImage()
         self.overlay_enabled = False
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
-        self.setStyleSheet("background: #101216; color: white;")
+        self.setObjectName("fullscreenSurface")
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
         self.grabGesture(Qt.SwipeGesture)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(16, 12, 16, 10)
+        layout.setSpacing(9)
 
         toolbar = QHBoxLayout()
         self.menu_button = QToolButton()
-        self.menu_button.setText("Menu")
+        self.menu_button.setText("···")
+        self.menu_button.setProperty("kind", "quiet")
+        self.menu_button.setToolTip("Photo and view menu")
         self.menu_button.clicked.connect(self._show_toolbar_menu)
         toolbar.addWidget(self.menu_button)
-        self.previous_button = QPushButton("← Previous")
+        self.previous_button = QPushButton("←")
+        self.previous_button.setProperty("kind", "quiet")
+        self.previous_button.setToolTip("Previous photo")
         self.previous_button.clicked.connect(self.previous_photo)
         toolbar.addWidget(self.previous_button)
         self.title_label = QLabel()
-        self.title_label.setStyleSheet("font-weight: 600; padding: 0 10px;")
+        self.title_label.setObjectName("panelTitle")
+        self.title_label.setAlignment(Qt.AlignCenter)
         toolbar.addWidget(self.title_label, 1)
-        self.keep_button = self._action_button(
-            "Keep  K", lambda: self._set_decision(Decision.KEEP)
-        )
-        self.review_button = self._action_button(
-            "Review  R", lambda: self._set_decision(Decision.REVIEW)
-        )
-        self.reject_button = self._action_button(
-            "Reject  X", lambda: self._set_decision(Decision.REJECT)
-        )
-        self.clear_button = self._action_button(
-            "Clear  U", lambda: self._set_decision(Decision.UNREVIEWED)
-        )
-        self.best_button = self._action_button("Toggle Best  B", self._toggle_best)
-        self.overlay_button = self._action_button(
-            "Analysis  O", self._toggle_analysis_overlay
-        )
-        self.overlay_button.setCheckable(True)
-        self.next_button = QPushButton("Next →")
+        self.next_button = QPushButton("→")
+        self.next_button.setProperty("kind", "quiet")
+        self.next_button.setToolTip("Next photo")
         self.next_button.clicked.connect(self.next_photo)
-        for button in (
-            self.keep_button,
-            self.review_button,
-            self.reject_button,
-            self.clear_button,
-            self.best_button,
-            self.overlay_button,
-            self.next_button,
-        ):
-            toolbar.addWidget(button)
+        toolbar.addWidget(self.next_button)
+        close_button = QPushButton("Close")
+        close_button.setProperty("kind", "quiet")
+        close_button.clicked.connect(self.close)
+        toolbar.addWidget(close_button)
         layout.addLayout(toolbar)
 
+        self.keep_button = self._action_button(
+            "Keep", lambda: self._set_decision(Decision.KEEP)
+        )
+        self.keep_button.setProperty("kind", "keep")
+        self.review_button = self._action_button(
+            "Review", lambda: self._set_decision(Decision.REVIEW)
+        )
+        self.review_button.setProperty("kind", "review")
+        self.reject_button = self._action_button(
+            "Reject", lambda: self._set_decision(Decision.REJECT)
+        )
+        self.reject_button.setProperty("kind", "reject")
+        self.clear_button = self._action_button(
+            "Clear", lambda: self._set_decision(Decision.UNREVIEWED)
+        )
+        self.clear_button.setProperty("kind", "quiet")
+        self.best_button = self._action_button("☆ Best", self._toggle_best)
+        self.best_button.setProperty("kind", "best")
+        self.best_button.setCheckable(True)
+        self.overlay_button = self._action_button(
+            "Evidence", self._toggle_analysis_overlay
+        )
+        self.overlay_button.setCheckable(True)
+        for button in (self.keep_button, self.review_button, self.reject_button):
+            button.setCheckable(True)
+
         self.image_label = QLabel()
+        self.image_label.setObjectName("fullscreenCanvas")
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setMinimumSize(1, 1)
         self.image_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
@@ -116,8 +129,26 @@ class FullscreenPhotoDialog(QDialog):
 
         self.footer_label = QLabel()
         self.footer_label.setAlignment(Qt.AlignCenter)
-        self.footer_label.setStyleSheet("padding: 5px; color: #c8ccd2;")
+        self.footer_label.setObjectName("mutedLabel")
         layout.addWidget(self.footer_label)
+
+        action_shelf = QFrame()
+        action_shelf.setObjectName("actionShelf")
+        action_layout = QHBoxLayout(action_shelf)
+        action_layout.setContentsMargins(10, 7, 10, 7)
+        action_layout.setSpacing(7)
+        action_layout.addStretch(1)
+        for button in (
+            self.keep_button,
+            self.review_button,
+            self.reject_button,
+            self.best_button,
+            self.clear_button,
+            self.overlay_button,
+        ):
+            action_layout.addWidget(button)
+        action_layout.addStretch(1)
+        layout.addWidget(action_shelf)
         self._show_current_photo()
 
     @property
@@ -150,13 +181,21 @@ class FullscreenPhotoDialog(QDialog):
             )
         )
         self.footer_label.setText(
-            "{0} / {1}    ·    ← → or horizontal gesture to navigate    ·    "
-            "K Keep · R Review · X Reject · B Best · O analysis · Esc close".format(
+            "{0} / {1}   ·   ← → navigate   ·   K Keep   R Review   X Reject   "
+            "B Best   O evidence   Esc close".format(
                 self.current_index + 1, len(self.photos)
             )
         )
         self._load_image(photo.display_path)
         self._update_controls()
+        self._update_action_state(photo)
+
+    def _update_action_state(self, photo: Photo) -> None:
+        self.keep_button.setChecked(photo.decision == Decision.KEEP)
+        self.review_button.setChecked(photo.decision == Decision.REVIEW)
+        self.reject_button.setChecked(photo.decision == Decision.REJECT)
+        self.best_button.setChecked(photo.is_best)
+        self.best_button.setText("★ Best" if photo.is_best else "☆ Best")
 
     def _load_image(self, image_path: str) -> None:
         self.image_label.clear()

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication
 
 from photochoose.database import PhotoDatabase
 from photochoose.main_window import MainWindow
+from photochoose.ui_theme import apply_application_theme
 
 
 def repair_macos_qt_plugin_visibility(plugin_root: Optional[Path] = None) -> int:
@@ -58,6 +59,7 @@ def create_application(
         app = QApplication(list(arguments) if arguments is not None else sys.argv)
     app.setOrganizationName("PhotoChoose")
     app.setApplicationName("PhotoChoose")
+    apply_application_theme(app)
     database = PhotoDatabase(database_path or default_database_path())
     window = MainWindow(database)
     window.show()

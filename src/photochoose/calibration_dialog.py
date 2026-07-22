@@ -25,11 +25,14 @@ class CalibrationReportDialog(QDialog):
         super().__init__(parent)
         self.report = report
         self.setWindowTitle("PhotoChoose calibration report")
+        self.setObjectName("calibrationDialog")
         self.resize(820, 680)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 16)
+        layout.setSpacing(9)
         heading = QLabel("Calibration report · {0}".format(report.project_name))
-        heading.setStyleSheet("font-size: 18px; font-weight: 600;")
+        heading.setObjectName("projectTitle")
         layout.addWidget(heading)
 
         notice = QLabel(
@@ -37,7 +40,7 @@ class CalibrationReportDialog(QDialog):
             "never changed automatically"
         )
         notice.setWordWrap(True)
-        notice.setStyleSheet("color: #808792;")
+        notice.setObjectName("mutedLabel")
         layout.addWidget(notice)
 
         self.report_text = QPlainTextEdit(report.to_text())

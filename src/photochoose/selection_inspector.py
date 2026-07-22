@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -18,71 +19,118 @@ from photochoose.models import Photo
 
 
 class SelectionInspector(QFrame):
-    """Collapsible summary and action panel for the current selection."""
+    """Quiet contextual controls and expandable evidence for the current selection."""
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setObjectName("selectionInspector")
-        self.setFrameShape(QFrame.StyledPanel)
+        self.setObjectName("inspectorSurface")
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 7, 10, 9)
-        layout.setSpacing(7)
+        layout.setContentsMargins(16, 16, 16, 14)
+        layout.setSpacing(10)
+        layout.setAlignment(Qt.AlignTop)
 
         header = QHBoxLayout()
-        self.toggle_button = QToolButton()
-        self.toggle_button.setText("Photo inspector")
-        self.toggle_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.toggle_button.setArrowType(Qt.DownArrow)
-        self.toggle_button.setCheckable(True)
-        self.toggle_button.setChecked(True)
-        self.toggle_button.setStyleSheet("font-weight: 600;")
-        self.toggle_button.toggled.connect(self.set_expanded)
-        header.addWidget(self.toggle_button)
+        panel_title = QLabel("INSPECTOR")
+        panel_title.setObjectName("eyebrow")
+        header.addWidget(panel_title)
         header.addStretch(1)
         self.visible_count_label = QLabel("0 photos")
-        self.visible_count_label.setStyleSheet("color: #808792;")
+        self.visible_count_label.setObjectName("mutedLabel")
         header.addWidget(self.visible_count_label)
         layout.addLayout(header)
 
-        self.contents = QWidget()
-        contents_layout = QVBoxLayout(self.contents)
-        contents_layout.setContentsMargins(2, 0, 2, 0)
+        self.selection_title = QLabel("Nothing selected")
+        self.selection_title.setObjectName("selectionTitle")
+        self.selection_title.setWordWrap(True)
+        layout.addWidget(self.selection_title)
+        self.selection_hint = QLabel("Choose a photo to review or classify it.")
+        self.selection_hint.setObjectName("inspectorHint")
+        self.selection_hint.setWordWrap(True)
+        layout.addWidget(self.selection_hint)
+
+        layout.addSpacing(4)
+        decision_label = QLabel("DECISION")
+        decision_label.setObjectName("eyebrow")
+        layout.addWidget(decision_label)
+
+        decisions = QHBoxLayout()
+        decisions.setSpacing(6)
+        self.keep_button = QPushButton("Keep")
+        self.keep_button.setProperty("kind", "keep")
+        self.review_button = QPushButton("Review")
+        self.review_button.setProperty("kind", "review")
+        self.reject_button = QPushButton("Reject")
+        self.reject_button.setProperty("kind", "reject")
+        for button, shortcut in (
+            (self.keep_button, "K"),
+            (self.review_button, "R"),
+            (self.reject_button, "X"),
+        ):
+            button.setCheckable(True)
+            button.setToolTip("Keyboard: {0}".format(shortcut))
+            decisions.addWidget(button)
+        layout.addLayout(decisions)
+
+        self.best_button = QPushButton("☆  Mark as Best")
+        self.best_button.setProperty("kind", "best")
+        self.best_button.setCheckable(True)
+        self.best_button.setToolTip("Keyboard: B")
+        layout.addWidget(self.best_button)
+
+        self.clear_button = QPushButton("Clear decision")
+        self.clear_button.setProperty("kind", "quiet")
+        self.clear_button.setToolTip("Return the selection to Unreviewed · Keyboard: U")
+        layout.addWidget(self.clear_button)
+
+        open_row = QHBoxLayout()
+        open_row.setSpacing(6)
+        self.open_button = QPushButton("Open")
+        self.compare_button = QPushButton("Compare")
+        self.open_button.setToolTip("Open the selected photo fullscreen")
+        self.compare_button.setToolTip("Compare this photo with its similar group")
+        open_row.addWidget(self.open_button)
+        open_row.addWidget(self.compare_button)
+        layout.addLayout(open_row)
+
+        view_label = QLabel("VIEW")
+        view_label.setObjectName("eyebrow")
+        layout.addWidget(view_label)
+        self.analysis_overlay_button = QPushButton("Analysis overlay")
+        self.analysis_overlay_button.setCheckable(True)
+        self.analysis_overlay_button.setToolTip(
+            "Show stored subject and eye evidence on previews · Keyboard: O"
+        )
+        layout.addWidget(self.analysis_overlay_button)
+
+        self.toggle_button = QToolButton()
+        self.toggle_button.setText("Analysis details")
+        self.toggle_button.setProperty("kind", "quiet")
+        self.toggle_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.toggle_button.setArrowType(Qt.RightArrow)
+        self.toggle_button.setCheckable(True)
+        self.toggle_button.setChecked(False)
+        self.toggle_button.toggled.connect(self.set_expanded)
+        layout.addWidget(self.toggle_button)
+
+        self.contents = QScrollArea()
+        self.contents.setWidgetResizable(True)
+        self.contents.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.contents.setMinimumHeight(260)
+        details_body = QWidget()
+        contents_layout = QVBoxLayout(details_body)
+        contents_layout.setContentsMargins(2, 2, 8, 2)
         contents_layout.setSpacing(7)
 
         self.details_label = QLabel("Select a photo to inspect the analysis and classify it.")
         self.details_label.setWordWrap(True)
+        self.details_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.details_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         contents_layout.addWidget(self.details_label)
-
-        actions = QHBoxLayout()
-        actions.setContentsMargins(0, 0, 0, 0)
-        self.open_button = QPushButton("Open fullscreen")
-        self.compare_button = QPushButton("Compare group")
-        self.keep_button = QPushButton("Keep  K")
-        self.review_button = QPushButton("Review  R")
-        self.reject_button = QPushButton("Reject  X")
-        self.clear_button = QPushButton("Clear  U")
-        self.best_button = QPushButton("Toggle Best  B")
-        self.analysis_overlay_button = QPushButton("Analysis overlay  O")
-        self.analysis_overlay_button.setCheckable(True)
-        self.analysis_overlay_button.setToolTip(
-            "Show detected face boxes and eye-state evidence on previews"
-        )
-        for button in (
-            self.open_button,
-            self.compare_button,
-            self.keep_button,
-            self.review_button,
-            self.reject_button,
-            self.clear_button,
-            self.best_button,
-            self.analysis_overlay_button,
-        ):
-            actions.addWidget(button)
-        actions.addStretch(1)
-        contents_layout.addLayout(actions)
-        layout.addWidget(self.contents)
+        contents_layout.addStretch(1)
+        self.contents.setWidget(details_body)
+        layout.addWidget(self.contents, 1)
+        self.set_expanded(False)
         self.set_photos([], 0)
 
     def set_expanded(self, expanded: bool) -> None:
@@ -108,21 +156,17 @@ class SelectionInspector(QFrame):
         )
 
         if not photos:
-            self.details_label.setMinimumHeight(24)
-            self.contents.setMinimumHeight(62)
-            self.toggle_button.setText("Photo inspector · none selected")
+            self.selection_title.setText("Nothing selected")
+            self.selection_hint.setText("Choose a photo to review or classify it.")
+            self._set_checked_state(None, False)
             self.details_label.setText(
                 "Select a photo to inspect its focus, exposure, faces, eyes, grouping, "
                 "and automatic reasons."
             )
             return
 
-        self.toggle_button.setText(
-            "Photo inspector · {0} selected".format(len(photos))
-        )
         if len(photos) > 1:
-            self.details_label.setMinimumHeight(40)
-            self.contents.setMinimumHeight(80)
+            self.selection_title.setText("{0} photos selected".format(len(photos)))
             decisions = Counter(photo.decision.value for photo in photos)
             decision_summary = " · ".join(
                 "{0} {1}".format(decisions[name], name.title())
@@ -130,6 +174,10 @@ class SelectionInspector(QFrame):
                 if decisions[name]
             )
             best_count = sum(photo.is_best for photo in photos)
+            self.selection_hint.setText(
+                "{0} · {1} Best · actions apply to all".format(decision_summary, best_count)
+            )
+            self._set_checked_state(None, False)
             self.details_label.setText(
                 "{0} photos selected · {1} · {2} Best\n"
                 "Actions below apply to every selected photo.".format(
@@ -139,8 +187,14 @@ class SelectionInspector(QFrame):
             return
 
         photo = photos[0]
-        self.details_label.setMinimumHeight(64)
-        self.contents.setMinimumHeight(110)
+        self.selection_title.setText(photo.filename)
+        self.selection_hint.setText(
+            "{0}{1}".format(
+                photo.decision.value.title(),
+                " · Best" if photo.is_best else "",
+            )
+        )
+        self._set_checked_state(photo.decision.value, photo.is_best)
         metrics = [
             "{0}    ·    {1} ({2})    ·    Best: {3} ({4})".format(
                 photo.relative_path,
@@ -196,10 +250,14 @@ class SelectionInspector(QFrame):
             )
         if photo.auto_reasons:
             metrics.append("Reasons: " + " · ".join(photo.auto_reasons))
-        details_height = max(64, len(metrics) * 18 + 6)
-        self.details_label.setMinimumHeight(details_height)
-        self.contents.setMinimumHeight(details_height + 46)
         self.details_label.setText("\n".join(metrics))
+
+    def _set_checked_state(self, decision: Optional[str], is_best: bool) -> None:
+        self.keep_button.setChecked(decision == "keep")
+        self.review_button.setChecked(decision == "review")
+        self.reject_button.setChecked(decision == "reject")
+        self.best_button.setChecked(is_best)
+        self.best_button.setText("★  Best" if is_best else "☆  Mark as Best")
 
     @staticmethod
     def _number(value: Optional[float]) -> str:

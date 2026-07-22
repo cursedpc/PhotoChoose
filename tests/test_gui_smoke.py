@@ -14,6 +14,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QItemSelectionModel, Qt  # noqa: E402
 from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
+from PySide6.QtWidgets import QFrame, QPushButton  # noqa: E402
 
 from photochoose.analysis_profiles import ANALYSIS_VERSION  # noqa: E402
 from photochoose.app import create_application  # noqa: E402
@@ -27,6 +28,14 @@ class GuiSmokeTests(unittest.TestCase):
             root = Path(temporary)
             app = create_application(["photochoose-test"], root / "state.sqlite3")
             window = app.main_window
+            self.assertIn("workspaceSurface", app.styleSheet())
+            library = window.findChild(QFrame, "libraryRail")
+            self.assertIsNotNone(library)
+            self.assertEqual(1, len(library.findChildren(QPushButton)))
+            self.assertEqual(
+                ["File", "Project", "Photo", "View"],
+                [action.text() for action in window.menuBar().actions()],
+            )
             shoot = root / "Wedding"
             shoot.mkdir()
             for index, color in enumerate(("#b14c45", "#4d7fb8", "#678f5a")):
@@ -70,7 +79,7 @@ class GuiSmokeTests(unittest.TestCase):
                     for photo in window.database.list_photos(project.id, PhotoView.ALL)
                 )
             )
-            self.assertIn("Reanalysis required", window.analysis_profile_status.text())
+            self.assertIn("need reanalysis", window.analysis_profile_status.text())
 
             selection = window.photo_grid.selectionModel()
             selection.select(

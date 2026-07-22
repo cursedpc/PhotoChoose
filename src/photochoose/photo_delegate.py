@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QRect, QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPalette, QPen
+from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPainterPath, QPalette, QPen
 from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
 from photochoose.analysis_overlay import paint_analysis_evidence
 from photochoose.models import Decision
 from photochoose.thumbnail_model import PhotoListModel
 
-GRID_SIZE = QSize(250, 215)
+GRID_SIZE = QSize(236, 216)
 
 
 class PhotoDelegate(QStyledItemDelegate):
@@ -23,15 +23,22 @@ class PhotoDelegate(QStyledItemDelegate):
 
         card = option.rect.adjusted(4, 4, -4, -4)
         selected = bool(option.state & QStyle.State_Selected)
-        painter.fillRect(card, option.palette.color(QPalette.Base))
+        hovered = bool(option.state & QStyle.State_MouseOver)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor("#292d33") if hovered else QColor("#23262b"))
+        painter.drawRoundedRect(card, 10, 10)
 
-        image_box = QRect(card.left() + 8, card.top() + 8, card.width() - 16, 160)
-        painter.fillRect(image_box, QColor("#252a31"))
+        image_box = QRect(card.left() + 8, card.top() + 8, card.width() - 16, 164)
+        painter.setBrush(QColor("#111316"))
+        painter.drawRoundedRect(image_box, 7, 7)
         pixmap = index.data(Qt.DecorationRole)
         if pixmap is not None and not pixmap.isNull():
             scaled = pixmap.scaled(image_box.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             x = image_box.left() + (image_box.width() - scaled.width()) // 2
             y = image_box.top() + (image_box.height() - scaled.height()) // 2
+            clip = QPainterPath()
+            clip.addRoundedRect(image_box, 7, 7)
+            painter.setClipPath(clip)
             painter.drawPixmap(x, y, scaled)
             if self.parent().property("analysisOverlayEnabled"):
                 photo = index.data(PhotoListModel.AnalysisEvidenceRole)
@@ -42,6 +49,7 @@ class PhotoDelegate(QStyledItemDelegate):
                         photo,
                         show_labels=False,
                     )
+            painter.setClipping(False)
 
         decision = index.data(PhotoListModel.DecisionRole)
         if decision != Decision.UNREVIEWED.value:
@@ -56,17 +64,17 @@ class PhotoDelegate(QStyledItemDelegate):
             self._paint_best_badge(painter, image_box)
 
         painter.setPen(option.palette.color(QPalette.Text))
-        label_rect = QRect(card.left() + 8, image_box.bottom() + 8, card.width() - 16, 24)
+        label_rect = QRect(card.left() + 10, image_box.bottom() + 8, card.width() - 20, 25)
         metrics = QFontMetrics(option.font)
         filename = metrics.elidedText(
             index.data(Qt.DisplayRole), Qt.ElideMiddle, label_rect.width()
         )
-        painter.drawText(label_rect, Qt.AlignHCenter | Qt.AlignTop, filename)
+        painter.drawText(label_rect, Qt.AlignLeft | Qt.AlignVCenter, filename)
 
         if selected:
-            painter.setPen(QPen(option.palette.color(QPalette.Highlight), 2))
+            painter.setPen(QPen(QColor("#75a7ef"), 2))
             painter.setBrush(Qt.NoBrush)
-            painter.drawRect(card.adjusted(1, 1, -1, -1))
+            painter.drawRoundedRect(card.adjusted(1, 1, -1, -1), 10, 10)
         painter.restore()
 
     @staticmethod
@@ -78,29 +86,29 @@ class PhotoDelegate(QStyledItemDelegate):
         }
         text = decision.upper()
         width = painter.fontMetrics().horizontalAdvance(text) + 16
-        badge = QRect(image_box.left() + 8, image_box.bottom() - 30, width, 22)
+        badge = QRect(image_box.left() + 8, image_box.bottom() - 29, width, 21)
         painter.setPen(Qt.NoPen)
         painter.setBrush(colors[decision])
-        painter.drawRoundedRect(badge, 5, 5)
+        painter.drawRoundedRect(badge, 6, 6)
         painter.setPen(QColor("white"))
         painter.drawText(badge, Qt.AlignCenter, text)
 
     @staticmethod
     def _paint_best_badge(painter: QPainter, image_box: QRect) -> None:
-        badge = QRect(image_box.right() - 62, image_box.top() + 8, 54, 22)
+        badge = QRect(image_box.right() - 63, image_box.top() + 8, 55, 21)
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor("#d49a24"))
-        painter.drawRoundedRect(badge, 5, 5)
+        painter.drawRoundedRect(badge, 6, 6)
         painter.setPen(QColor("#171717"))
         painter.drawText(badge, Qt.AlignCenter, "★ BEST")
 
     @staticmethod
     def _paint_group_badge(painter: QPainter, image_box: QRect, group_id: str) -> None:
         width = painter.fontMetrics().horizontalAdvance(group_id) + 14
-        badge = QRect(image_box.left() + 8, image_box.top() + 8, width, 22)
+        badge = QRect(image_box.left() + 8, image_box.top() + 8, width, 21)
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor("#316f9f") if group_id.startswith("B") else QColor("#59616d"))
-        painter.drawRoundedRect(badge, 5, 5)
+        painter.drawRoundedRect(badge, 6, 6)
         painter.setPen(QColor("white"))
         painter.drawText(badge, Qt.AlignCenter, group_id)
 
