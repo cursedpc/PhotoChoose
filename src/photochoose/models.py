@@ -38,6 +38,7 @@ class EyeEvidence:
     openness_score: Optional[float]
     focus_score: Optional[float]
     landmarks: Tuple[Tuple[float, float], ...] = ()
+    visibility_reason: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -123,6 +124,34 @@ class Photo:
     @property
     def primary_object_count(self) -> int:
         return sum(region.importance == "primary" for region in self.subject_objects)
+
+    @property
+    def obscured_eye_count(self) -> int:
+        return sum(
+            eye.state == "obscured"
+            for region in self.subject_regions
+            for eye in region.eyes
+        )
+
+    @property
+    def important_obscured_eye_count(self) -> int:
+        return sum(
+            eye.state == "obscured"
+            for region in self.subject_regions
+            if region.important
+            for eye in region.eyes
+        )
+
+    @property
+    def eye_visibility_reasons(self) -> Tuple[str, ...]:
+        return tuple(
+            dict.fromkeys(
+                eye.visibility_reason
+                for region in self.subject_regions
+                for eye in region.eyes
+                if eye.visibility_reason
+            )
+        )
 
     @property
     def display_path(self) -> str:

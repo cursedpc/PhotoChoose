@@ -9,6 +9,7 @@ from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from photochoose.analysis_overlay import (  # noqa: E402
+    EYE_COLORS,
     _visible_evidence,
     render_analysis_overlay,
 )
@@ -84,6 +85,11 @@ class AnalysisOverlayTests(unittest.TestCase):
 
         self.assertEqual(QColor("white"), QColor(source.pixel(100, 60)))
         self.assertNotEqual(QColor("white"), QColor(output.pixel(100, 60)))
+
+    def test_obscured_eye_has_distinct_overlay_color(self) -> None:
+        self.assertIn("obscured", EYE_COLORS)
+        self.assertNotEqual(EYE_COLORS["closed"], EYE_COLORS["obscured"])
+        self.assertNotEqual(EYE_COLORS["uncertain"], EYE_COLORS["obscured"])
 
     def test_crowded_overlay_hides_redundant_and_low_priority_evidence(self) -> None:
         faces = tuple(

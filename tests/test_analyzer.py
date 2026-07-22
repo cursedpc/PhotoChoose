@@ -274,6 +274,11 @@ class BaselineAnalyzerTests(unittest.TestCase):
             important_open_eye_count=1,
             important_closed_eye_count=1,
         )
+        obscured_primary_eye = replace(
+            strong,
+            important_open_eye_count=1,
+            important_obscured_eye_count=1,
+        )
 
         strong_score = BaselineAnalyzer._best_score(Decision.KEEP, strong)
         self.assertGreater(
@@ -282,8 +287,28 @@ class BaselineAnalyzerTests(unittest.TestCase):
         )
         self.assertGreater(
             strong_score,
+            BaselineAnalyzer._best_score(Decision.KEEP, obscured_primary_eye),
+        )
+        self.assertGreater(
+            BaselineAnalyzer._best_score(Decision.KEEP, obscured_primary_eye),
             BaselineAnalyzer._best_score(Decision.KEEP, closed_primary_eye),
         )
+
+    def test_obscured_eye_is_reviewed_without_a_closed_eye_claim(self) -> None:
+        decision, reasons = BaselineAnalyzer._classify(
+            focus_score=120.0,
+            brightness=0.5,
+            clipped_dark=0.0,
+            clipped_bright=0.0,
+            face_count=1,
+            eye_count=1,
+            subject_focus=100.0,
+            obscured_eye_count=1,
+        )
+
+        self.assertEqual(Decision.REVIEW, decision)
+        self.assertTrue(any("obscured or unresolved" in reason for reason in reasons))
+        self.assertFalse(any("closed" in reason for reason in reasons))
 
     def test_general_subject_softness_is_review_only_for_detector_evidence(self) -> None:
         common = dict(

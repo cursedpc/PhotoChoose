@@ -103,6 +103,7 @@ class PhotoListModel(QAbstractListModel):
                 lines.append("Open eyes: {0}".format(photo.eye_count))
                 lines.append("Closed eyes: {0}".format(photo.closed_eye_count))
                 lines.append("Uncertain eyes: {0}".format(photo.uncertain_eye_count))
+                lines.append("Obscured/unresolved eyes: {0}".format(photo.obscured_eye_count))
             if photo.subject_focus_score is not None:
                 lines.append("Face-region focus: {0:.2f}".format(photo.subject_focus_score))
             if photo.subject_model != "none":
@@ -119,6 +120,10 @@ class PhotoListModel(QAbstractListModel):
                 lines.append("Weakest primary-eye focus: {0:.2f}".format(
                     photo.eye_focus_score
                 ))
+            if photo.eye_visibility_reasons:
+                lines.append(
+                    "Eye visibility: " + " · ".join(photo.eye_visibility_reasons)
+                )
             if photo.object_count:
                 lines.append(
                     "Object regions: {0} (class names are model guesses)".format(

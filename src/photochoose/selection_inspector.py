@@ -158,12 +158,13 @@ class SelectionInspector(QFrame):
                 self._number(photo.focus_score),
                 self._percentage(photo.brightness),
             ),
-            "Faces: {0}    ·    Eyes O/C/?: {1}/{2}/{3}    ·    Face focus: {4}    ·    "
-            "Model: {5}".format(
+            "Faces: {0}    ·    Eyes O/C/?/Obs: {1}/{2}/{3}/{4}    ·    "
+            "Face focus: {5}    ·    Model: {6}".format(
                 photo.face_count,
                 photo.eye_count,
                 photo.closed_eye_count,
                 photo.uncertain_eye_count,
+                photo.obscured_eye_count,
                 self._number(photo.subject_focus_score),
                 photo.subject_model,
             ),
@@ -189,6 +190,10 @@ class SelectionInspector(QFrame):
             metrics.append(metadata)
         if photo.group_reason:
             metrics.append(photo.group_reason)
+        if photo.eye_visibility_reasons:
+            metrics.append(
+                "Eye visibility: " + " · ".join(photo.eye_visibility_reasons)
+            )
         if photo.auto_reasons:
             metrics.append("Reasons: " + " · ".join(photo.auto_reasons))
         details_height = max(64, len(metrics) * 18 + 6)

@@ -157,6 +157,7 @@ class PhotoDatabase:
             self._add_missing_project_columns(connection)
             self._add_missing_photo_columns(connection)
             self._add_missing_override_columns(connection)
+            self._mark_outdated_analysis(connection)
             connection.commit()
 
     @staticmethod
@@ -272,6 +273,17 @@ class PhotoDatabase:
                         name, definition
                     )
                 )
+
+    @staticmethod
+    def _mark_outdated_analysis(connection: sqlite3.Connection) -> None:
+        connection.execute(
+            """
+            UPDATE photos SET analysis_status = 'stale'
+            WHERE analysis_status != 'pending'
+              AND COALESCE(analysis_version, '') != ?
+            """,
+            (ANALYSIS_VERSION,),
+        )
 
     def add_project(self, root_path: Path) -> Project:
         root = Path(root_path).expanduser().resolve()
@@ -1328,6 +1340,7 @@ class PhotoDatabase:
                             "openness_score": eye.openness_score,
                             "focus_score": eye.focus_score,
                             "landmarks": [list(point) for point in eye.landmarks],
+                            "visibility_reason": eye.visibility_reason,
                         }
                         for eye in region.eyes
                     ],
@@ -1372,6 +1385,11 @@ class PhotoDatabase:
                             landmarks=tuple(
                                 (float(point[0]), float(point[1]))
                                 for point in eye.get("landmarks", [])
+                            ),
+                            visibility_reason=(
+                                str(eye["visibility_reason"])
+                                if eye.get("visibility_reason")
+                                else None
                             ),
                         )
                         for eye in region.get("eyes", [])

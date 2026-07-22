@@ -357,11 +357,12 @@ class PhotoDatabaseTests(unittest.TestCase):
         self.database.scan_project(project.id)
         photo = self.database.list_photos(project.id, PhotoView.ALL)[0]
         eye = EyeEvidence(
-            state="open",
+            state="obscured",
             aperture=0.24,
-            openness_score=1.0,
+            openness_score=None,
             focus_score=321.5,
             landmarks=((0.2, 0.3), (0.25, 0.31)),
+            visibility_reason="Strong glare prevents verification",
         )
         face = FaceEvidence(
             bounds=(0.1, 0.15, 0.4, 0.5),
@@ -375,7 +376,7 @@ class PhotoDatabaseTests(unittest.TestCase):
             photo.id,
             "0123456789abcdef",
             1,
-            1,
+            0,
             0,
             0,
             210.0,
@@ -390,6 +391,42 @@ class PhotoDatabaseTests(unittest.TestCase):
         self.assertEqual((face,), loaded.subject_regions)
         self.assertEqual(321.5, loaded.eye_focus_score)
         self.assertEqual(1, loaded.important_face_count)
+        self.assertEqual(1, loaded.obscured_eye_count)
+        self.assertEqual(
+            ("Strong glare prevents verification",),
+            loaded.eye_visibility_reasons,
+        )
+
+    def test_outdated_analysis_is_marked_stale_without_changing_decision(self) -> None:
+        self._write_photo("one.jpg")
+        project = self.database.add_project(self.shoot)
+        self.database.scan_project(project.id)
+        photo = self.database.list_photos(project.id, PhotoView.ALL)[0]
+        self.database.apply_analysis(
+            photo.id,
+            Decision.REVIEW,
+            20.0,
+            0.5,
+            0.0,
+            0.0,
+            "hash",
+            ("Possibly soft",),
+            None,
+        )
+        self.database.set_decision([photo.id], Decision.KEEP)
+        connection = sqlite3.connect(str(self.database.path))
+        connection.execute(
+            "UPDATE photos SET analysis_status = 'complete', analysis_version = 'legacy-v1'"
+        )
+        connection.commit()
+        connection.close()
+
+        migrated = PhotoDatabase(self.database.path)
+        loaded = migrated.list_photos(project.id, PhotoView.ALL)[0]
+
+        self.assertEqual("stale", loaded.analysis_status)
+        self.assertEqual(Decision.KEEP, loaded.decision)
+        self.assertEqual("manual", loaded.decision_source)
 
     def test_object_evidence_round_trips_through_database(self) -> None:
         self._write_photo("one.jpg")

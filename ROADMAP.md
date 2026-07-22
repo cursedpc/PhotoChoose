@@ -304,8 +304,11 @@ distance between automatic selections so the configured maximum does not fill wi
 identical frames.
 
 Real threshold tuning and performance validation are deliberately deferred until representative
-large shoots can run on the target machine. The next implementation slice can improve obscured
-eye/glasses handling and prepare Windows/OpenVINO validation without claiming corpus calibration.
+large shoots can run on the target machine. Eye visibility is now separated from eyelid geometry:
+small, dark/covered, glare-clipped, or low-detail eye regions become explicit obscured/unresolved
+evidence rather than closed-eye claims. Older analyses are marked stale under the new version
+without changing decisions. The next implementation slice can prepare Windows/OpenVINO validation
+without claiming corpus calibration.
 
 ## Current implementation status
 

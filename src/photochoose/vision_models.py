@@ -16,6 +16,11 @@ FACE_LANDMARK_MODEL_PATH = MODEL_DIRECTORY / "face_landmarks_detector.tflite"
 MAX_DETECTION_DIMENSION = 1280
 CLOSED_EYE_APERTURE = 0.14
 OPEN_EYE_APERTURE = 0.19
+MIN_VISIBLE_EYE_WIDTH = 6.0
+MIN_VISIBLE_EYE_CONTRAST = 6.0
+MIN_VISIBLE_EYE_FOCUS = 8.0
+MAX_DARK_EYE_FRACTION = 0.78
+MAX_BRIGHT_EYE_FRACTION = 0.85
 RIGHT_EYE_LANDMARKS = (33, 160, 158, 133, 153, 144)
 LEFT_EYE_LANDMARKS = (362, 385, 387, 263, 373, 380)
 
@@ -26,6 +31,7 @@ class SubjectModelResult:
     open_eye_count: int
     closed_eye_count: int
     uncertain_eye_count: int
+    obscured_eye_count: int
     subject_focus_score: Optional[float]
     face_confidence: Optional[float]
     eye_open_score: Optional[float]
@@ -35,6 +41,7 @@ class SubjectModelResult:
     important_open_eye_count: int = 0
     important_closed_eye_count: int = 0
     important_uncertain_eye_count: int = 0
+    important_obscured_eye_count: int = 0
     regions: Tuple[FaceEvidence, ...] = ()
 
 
@@ -190,12 +197,13 @@ class ModelSubjectAnalyzer:
             "yunet+face-mesh-litert" if self.eye_analyzer.available else "yunet"
         )
         if faces is None or len(faces) == 0:
-            return SubjectModelResult(0, 0, 0, 0, None, None, None, model_name)
+            return SubjectModelResult(0, 0, 0, 0, 0, None, None, None, model_name)
 
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         open_count = 0
         closed_count = 0
         uncertain_count = 0
+        obscured_count = 0
         face_focus_scores = []
         face_confidences = []
         regions = []
@@ -227,15 +235,9 @@ class ModelSubjectAnalyzer:
             )
             eye_evidence = []
             for eye_result in eye_results:
-                if eye_result.state == "open":
-                    open_count += 1
-                elif eye_result.state == "closed":
-                    closed_count += 1
-                else:
-                    uncertain_count += 1
-
                 normalized_landmarks = ()
                 eye_focus = None
+                visibility_reason = None
                 if crop_result is not None and eye_result.landmarks:
                     normalized_landmarks, pixel_landmarks = self._map_eye_landmarks(
                         eye_result.landmarks,
@@ -244,13 +246,30 @@ class ModelSubjectAnalyzer:
                         image.shape[0],
                     )
                     eye_focus = self._eye_focus_score(gray, pixel_landmarks)
+                    visibility_reason = self._eye_visibility_issue(
+                        gray, pixel_landmarks, eye_focus
+                    )
+                elif not eye_result.landmarks:
+                    visibility_reason = "Eye landmarks are unavailable"
+                state = "obscured" if visibility_reason else eye_result.state
+                if state == "open":
+                    open_count += 1
+                elif state == "closed":
+                    closed_count += 1
+                elif state == "obscured":
+                    obscured_count += 1
+                else:
+                    uncertain_count += 1
                 eye_evidence.append(
                     EyeEvidence(
-                        state=eye_result.state,
+                        state=state,
                         aperture=eye_result.aperture,
-                        openness_score=eye_result.openness_score,
+                        openness_score=(
+                            None if visibility_reason else eye_result.openness_score
+                        ),
                         focus_score=eye_focus,
                         landmarks=normalized_landmarks,
+                        visibility_reason=visibility_reason,
                     )
                 )
             regions.append(
@@ -269,7 +288,7 @@ class ModelSubjectAnalyzer:
             )
 
         if not regions:
-            return SubjectModelResult(0, 0, 0, 0, None, None, None, model_name)
+            return SubjectModelResult(0, 0, 0, 0, 0, None, None, None, model_name)
         largest_area = max(region.bounds[2] * region.bounds[3] for region in regions)
         regions = [
             replace(
@@ -299,6 +318,7 @@ class ModelSubjectAnalyzer:
             open_eye_count=open_count,
             closed_eye_count=closed_count,
             uncertain_eye_count=uncertain_count,
+            obscured_eye_count=obscured_count,
             subject_focus_score=min(face_focus_scores) if face_focus_scores else None,
             face_confidence=(
                 sum(face_confidences) / len(face_confidences) if face_confidences else None
@@ -317,6 +337,9 @@ class ModelSubjectAnalyzer:
             ),
             important_uncertain_eye_count=sum(
                 eye.state == "uncertain" for eye in important_eyes
+            ),
+            important_obscured_eye_count=sum(
+                eye.state == "obscured" for eye in important_eyes
             ),
             regions=tuple(regions),
         )
@@ -390,6 +413,14 @@ class ModelSubjectAnalyzer:
 
     @staticmethod
     def _eye_focus_score(gray: np.ndarray, landmarks: np.ndarray) -> Optional[float]:
+        region = ModelSubjectAnalyzer._eye_region(gray, landmarks)
+        if region is None:
+            return None
+        normalized = cv2.resize(region, (64, 32), interpolation=cv2.INTER_CUBIC)
+        return float(cv2.Laplacian(normalized, cv2.CV_64F).var())
+
+    @staticmethod
+    def _eye_region(gray: np.ndarray, landmarks: np.ndarray) -> Optional[np.ndarray]:
         if landmarks.shape != (6, 2) or not np.isfinite(landmarks).all():
             return None
         x, y, width, height = cv2.boundingRect(landmarks.astype(np.float32))
@@ -402,5 +433,30 @@ class ModelSubjectAnalyzer:
         region = gray[y1:y2, x1:x2]
         if region.size < 16 or x2 - x1 < 4 or y2 - y1 < 4:
             return None
-        normalized = cv2.resize(region, (64, 32), interpolation=cv2.INTER_CUBIC)
-        return float(cv2.Laplacian(normalized, cv2.CV_64F).var())
+        return region
+
+    @staticmethod
+    def _eye_visibility_issue(
+        gray: np.ndarray,
+        landmarks: np.ndarray,
+        eye_focus: Optional[float],
+    ) -> Optional[str]:
+        """Return a conservative visibility issue, never a closed-eye claim."""
+
+        if landmarks.shape != (6, 2) or not np.isfinite(landmarks).all():
+            return "Eye landmarks are unavailable"
+        eye_width = float(np.linalg.norm(landmarks[0] - landmarks[3]))
+        if eye_width < MIN_VISIBLE_EYE_WIDTH:
+            return "Eye is too small to verify"
+        region = ModelSubjectAnalyzer._eye_region(gray, landmarks)
+        if region is None:
+            return "Eye region cannot be measured"
+        if float(np.count_nonzero(region <= 35) / region.size) >= MAX_DARK_EYE_FRACTION:
+            return "Eye region is too dark or covered to verify"
+        if float(np.count_nonzero(region >= 235) / region.size) >= MAX_BRIGHT_EYE_FRACTION:
+            return "Eye region has strong glare or clipping"
+        if float(region.std()) < MIN_VISIBLE_EYE_CONTRAST:
+            return "Eye region lacks enough contrast to verify"
+        if eye_focus is None or eye_focus < MIN_VISIBLE_EYE_FOCUS:
+            return "Eye region lacks enough detail to verify"
+        return None
