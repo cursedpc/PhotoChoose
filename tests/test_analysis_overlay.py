@@ -8,12 +8,16 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from photochoose.analysis_overlay import render_analysis_overlay  # noqa: E402
+from photochoose.analysis_overlay import (  # noqa: E402
+    _visible_evidence,
+    render_analysis_overlay,
+)
 from photochoose.app import repair_macos_qt_plugin_visibility  # noqa: E402
 from photochoose.models import (  # noqa: E402
     Decision,
     EyeEvidence,
     FaceEvidence,
+    ObjectEvidence,
     Photo,
 )
 
@@ -58,6 +62,71 @@ class AnalysisOverlayTests(unittest.TestCase):
         self.assertEqual(QColor("white"), QColor(source.pixel(80, 60)))
         self.assertNotEqual(QColor("white"), QColor(output.pixel(80, 60)))
         self.assertNotEqual(QColor("white"), QColor(output.pixel(100, 90)))
+
+    def test_overlay_draws_object_evidence_without_faces(self) -> None:
+        source = QImage(400, 300, QImage.Format_RGB32)
+        source.fill(QColor("white"))
+        photo = Photo(
+            id=1,
+            project_id=1,
+            relative_path="still-life.jpg",
+            absolute_path="/still-life.jpg",
+            decision=Decision.KEEP,
+            is_best=False,
+            subject_objects=(
+                ObjectEvidence(
+                    "vase", (0.25, 0.2, 0.4, 0.6), 0.92, 180.0, "primary"
+                ),
+            ),
+        )
+
+        output = render_analysis_overlay(source, photo)
+
+        self.assertEqual(QColor("white"), QColor(source.pixel(100, 60)))
+        self.assertNotEqual(QColor("white"), QColor(output.pixel(100, 60)))
+
+    def test_crowded_overlay_hides_redundant_and_low_priority_evidence(self) -> None:
+        faces = tuple(
+            FaceEvidence(
+                (0.05 * index, 0.1, 0.12, 0.2),
+                0.95 - index * 0.01,
+                100.0,
+                True,
+            )
+            for index in range(8)
+        )
+        objects = (
+            ObjectEvidence("person", (0.0, 0.0, 0.8, 0.9), 0.95, 100.0, "primary"),
+            ObjectEvidence("chair", (0.8, 0.8, 0.1, 0.1), 0.80, 80.0, "background"),
+            *tuple(
+                ObjectEvidence(
+                    "dog",
+                    (0.1 * index, 0.6, 0.12, 0.2),
+                    0.90 - index * 0.02,
+                    90.0,
+                    "primary",
+                )
+                for index in range(6)
+            ),
+        )
+        photo = Photo(
+            id=1,
+            project_id=1,
+            relative_path="crowd.jpg",
+            absolute_path="/crowd.jpg",
+            decision=Decision.KEEP,
+            is_best=False,
+            subject_regions=faces,
+            subject_objects=objects,
+        )
+
+        visible_objects, visible_faces, crowded = _visible_evidence(photo)
+
+        self.assertTrue(crowded)
+        self.assertEqual(4, len(visible_objects))
+        self.assertEqual(6, len(visible_faces))
+        self.assertNotIn("person", {item.label for item in visible_objects})
+        self.assertNotIn("background", {item.importance for item in visible_objects})
 
 
 if __name__ == "__main__":

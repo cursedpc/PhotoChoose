@@ -15,6 +15,11 @@ PhotoChoose is a private, local-first desktop application for professional photo
   primary-subject result for conservative burst ranking.
 - Treat faces smaller than one quarter of the largest detected face as background evidence
   for ranking purposes, while still showing and counting them.
+- Detect people and common animals, vehicles, furnishings, food, electronics, and other
+  COCO objects with a bundled NanoDet model, then classify their importance as primary,
+  supporting, or background.
+- Find an unlabeled prominent region with a local spectral-saliency fallback when no known
+  object class is detected, and measure focus inside every retained subject region.
 - Read EXIF capture time, camera/lens identity, ISO, shutter, aperture, and focal length.
 - Group bursts using capture timing, camera identity, and perceptual similarity, with a
   conservative visual fallback when EXIF is unavailable.
@@ -29,11 +34,14 @@ PhotoChoose is a private, local-first desktop application for professional photo
   decisions. Generated RAW-only previews are deleted automatically and recreated if the
   project is opened again; original RAW/JPEG/XMP files are never touched.
 - Browse `All`, `Best`, `Keep`, `Review`, and `Reject` inside the selected project.
-- Inspect focus, exposure, face/eye, similarity, ranking, and decision reasons in a
+- Inspect focus, exposure, face/eye/object, similarity, ranking, and decision reasons in a
   collapsible panel above the thumbnail grid.
 - Toggle the **Analysis overlay** (`O`) in the grid, fullscreen viewer, or comparison view
-  to inspect primary/background face boxes, open/closed/uncertain eye geometry, and local
-  sharpness measurements.
+  to inspect primary/supporting object boxes and primary/background face boxes,
+  open/closed/uncertain eye geometry, and local sharpness measurements.
+- Automatically declutter crowded overlays: face evidence replaces redundant person boxes,
+  background object guesses stay hidden, the strongest regions are capped, and text labels
+  are reduced before useful eye-state colors and primary focus boxes.
 - Right-click photographs to open fullscreen or apply Keep, Review, Reject, Clear,
   and Best decisions to the selection.
 - Open **Compare group** for any blue `B####` burst or gray `G####` similarity badge.
@@ -58,32 +66,38 @@ PhotoChoose is a private, local-first desktop application for professional photo
 Manual decisions are protected: after you explicitly classify a photograph, subsequent analysis runs update its metrics and reasons but do not overwrite your choice.
 
 The analysis intentionally sends uncertain soft images, confidently detected closed eyes,
-and uncertain eye states to `Review`; it does not reject a unique portrait merely because a
-model suspects a blink. Within a burst, closed eyes reduce the ranking score so an otherwise
-similar open-eye frame is preferred. The current models work best on sufficiently large,
-near-frontal faces. Profiles, heavily obscured eyes, very small faces, expressions, and
-general non-human subject detection still need later models and photographer-corpus
-calibration.
+uncertain eye states, and very soft primary detected objects to `Review`; it does not reject
+a unique photograph solely from those model signals. Within a burst, open eyes and sharper
+primary subjects improve ranking. The current face models work best on sufficiently large,
+near-frontal faces, and the general detector recognizes only its COCO-80 classes. Profiles,
+heavily obscured eyes, very small faces, expressions, uncatalogued subjects, and all
+thresholds still need photographer-corpus calibration.
+
+Object class names are confidence-qualified model guesses, not authoritative metadata. A
+wrong class name can still surround the correct subject and provide a useful regional-focus
+measurement. PhotoChoose therefore keeps class names out of the normal overlay and exposes
+them as `Likely …` details in the photograph tooltip.
 
 ## Local subject models
 
-Both neural model files are installed with PhotoChoose. YuNet runs through OpenCV DNN;
-the face-mesh model runs through LiteRT CPU on the current macOS development machine.
+All three neural model files are installed with PhotoChoose. YuNet and NanoDet run through
+OpenCV DNN; the face-mesh model runs through LiteRT CPU on the current macOS development machine.
 Analysis does not contact a server or download model files at runtime. If model loading or
-inference fails, PhotoChoose falls back to its earlier OpenCV Haar face/eye checks and marks
-the backend in the analysis details.
+inference fails, PhotoChoose uses its earlier OpenCV Haar face/eye checks and spectral
+saliency fallback, and marks the active backends in the analysis details.
 
 - Face detection and landmarks: OpenCV Zoo YuNet, MIT licensed.
 - Eye state: MediaPipe Face Mesh V2 landmarks, Apache-2.0 licensed, executed locally
   through LiteRT.
+- General objects: OpenCV Zoo NanoDet, Apache-2.0 licensed, executed locally through
+  OpenCV DNN with a model-free saliency fallback.
 - Exact upstream locations, licenses, filenames, and SHA-256 hashes are recorded in
   `src/photochoose/model_assets/MODELS.md`.
 
-YuNet remains ONNX/OpenVINO compatible, while OpenVINO can import the face-mesh TFLite
-model. The currently selected runtime is LiteRT CPU because it is stable and entirely local
-on both development and target platforms. Actual Intel CPU, integrated-GPU, and OpenVINO
-`AUTO` performance will be measured on the target Windows 11 machine; the present macOS
-work does not claim those performance numbers yet.
+YuNet and NanoDet remain ONNX/OpenVINO compatible, while OpenVINO can import the face-mesh
+TFLite model. The current development path is entirely local and CPU-capable. Actual Intel
+CPU, integrated-GPU, and OpenVINO `AUTO` performance will be measured on the target Windows
+11 machine; the present macOS work does not claim those performance numbers yet.
 
 ## Export behavior
 
@@ -126,7 +140,7 @@ On Windows, activate the environment with `.venv\\Scripts\\activate` before inst
 - `X`: Reject
 - `U`: Clear the decision
 - `B`: Toggle Best
-- `O`: Toggle face/eye analysis evidence
+- `O`: Toggle face/eye/object analysis evidence
 - `Cmd/Ctrl+A`: Select every visible photograph
 - `Left` / `Right` (fullscreen): previous / next photo
 - Horizontal swipe or two-finger scroll (fullscreen): previous / next photo

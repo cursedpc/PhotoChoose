@@ -50,6 +50,17 @@ class FaceEvidence:
 
 
 @dataclass(frozen=True)
+class ObjectEvidence:
+    """One general-subject region in normalized image coordinates."""
+
+    label: str
+    bounds: Tuple[float, float, float, float]
+    confidence: float
+    focus_score: Optional[float]
+    importance: str
+
+
+@dataclass(frozen=True)
 class Photo:
     id: int
     project_id: int
@@ -92,6 +103,10 @@ class Photo:
     eye_open_score: Optional[float] = None
     eye_focus_score: Optional[float] = None
     subject_regions: Tuple[FaceEvidence, ...] = ()
+    object_count: int = 0
+    object_model: str = "none"
+    primary_subject_focus_score: Optional[float] = None
+    subject_objects: Tuple[ObjectEvidence, ...] = ()
 
     @property
     def filename(self) -> str:
@@ -100,6 +115,10 @@ class Photo:
     @property
     def important_face_count(self) -> int:
         return sum(region.important for region in self.subject_regions)
+
+    @property
+    def primary_object_count(self) -> int:
+        return sum(region.importance == "primary" for region in self.subject_objects)
 
     @property
     def display_path(self) -> str:

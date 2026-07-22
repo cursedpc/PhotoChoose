@@ -115,6 +115,38 @@ class PhotoListModel(QAbstractListModel):
                 lines.append("Weakest primary-eye focus: {0:.2f}".format(
                     photo.eye_focus_score
                 ))
+            if photo.object_count:
+                lines.append(
+                    "Object regions: {0} (class names are model guesses)".format(
+                        photo.object_count
+                    )
+                )
+                visible_guesses = [
+                    item
+                    for item in photo.subject_objects
+                    if item.importance != "background"
+                ][:8]
+                for item in visible_guesses:
+                    focus = "—" if item.focus_score is None else "{0:.1f}".format(
+                        item.focus_score
+                    )
+                    lines.append(
+                        "  Likely {0} ({1:.0f}%): {2}, focus {3}".format(
+                            item.label,
+                            item.confidence * 100.0,
+                            item.importance,
+                            focus,
+                        )
+                    )
+                hidden_count = photo.object_count - len(visible_guesses)
+                if hidden_count > 0:
+                    lines.append(
+                        "  +{0} lower-priority guess{1}".format(
+                            hidden_count, "" if hidden_count == 1 else "es"
+                        )
+                    )
+            if photo.object_model != "none":
+                lines.append("Object model: {0}".format(photo.object_model))
             if photo.similarity_group:
                 lines.append("Similar group: {0}".format(photo.similarity_group))
                 if photo.group_reason:

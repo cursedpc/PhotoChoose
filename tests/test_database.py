@@ -6,7 +6,13 @@ import unittest
 from pathlib import Path
 
 from photochoose.database import PhotoDatabase
-from photochoose.models import Decision, EyeEvidence, FaceEvidence, PhotoView
+from photochoose.models import (
+    Decision,
+    EyeEvidence,
+    FaceEvidence,
+    ObjectEvidence,
+    PhotoView,
+)
 
 
 class PhotoDatabaseTests(unittest.TestCase):
@@ -145,6 +151,10 @@ class PhotoDatabaseTests(unittest.TestCase):
         self.assertIn("eye_open_score", columns)
         self.assertIn("eye_focus_score", columns)
         self.assertIn("subject_regions", columns)
+        self.assertIn("object_count", columns)
+        self.assertIn("object_model", columns)
+        self.assertIn("primary_subject_focus_score", columns)
+        self.assertIn("subject_objects", columns)
         self.assertIn("similarity_group", columns)
         self.assertIn("group_reason", columns)
         self.assertIn("captured_at", columns)
@@ -195,6 +205,33 @@ class PhotoDatabaseTests(unittest.TestCase):
         self.assertEqual((face,), loaded.subject_regions)
         self.assertEqual(321.5, loaded.eye_focus_score)
         self.assertEqual(1, loaded.important_face_count)
+
+    def test_object_evidence_round_trips_through_database(self) -> None:
+        self._write_photo("one.jpg")
+        project = self.database.add_project(self.shoot)
+        self.database.scan_project(project.id)
+        photo = self.database.list_photos(project.id, PhotoView.ALL)[0]
+        detected = ObjectEvidence(
+            label="dog",
+            bounds=(0.1, 0.2, 0.5, 0.6),
+            confidence=0.91,
+            focus_score=142.5,
+            importance="primary",
+        )
+
+        self.database.apply_object_analysis(
+            photo.id,
+            1,
+            "nanodet-opencv",
+            142.5,
+            (detected,),
+        )
+
+        loaded = self.database.list_photos(project.id, PhotoView.ALL)[0]
+        self.assertEqual((detected,), loaded.subject_objects)
+        self.assertEqual(1, loaded.object_count)
+        self.assertEqual(1, loaded.primary_object_count)
+        self.assertEqual("nanodet-opencv", loaded.object_model)
 
     def test_closing_and_reopening_project_preserves_decisions(self) -> None:
         self._write_photo("one.jpg")

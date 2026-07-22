@@ -6,10 +6,13 @@ import time
 import unittest
 from pathlib import Path
 
+import cv2
+import numpy as np
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QItemSelectionModel, Qt  # noqa: E402
-from PySide6.QtGui import QColor, QImage  # noqa: E402
+from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 
 from photochoose.app import create_application  # noqa: E402
@@ -26,9 +29,15 @@ class GuiSmokeTests(unittest.TestCase):
             shoot = root / "Wedding"
             shoot.mkdir()
             for index, color in enumerate(("#b14c45", "#4d7fb8", "#678f5a")):
-                image = QImage(800, 600, QImage.Format_RGB32)
-                image.fill(QColor(color))
-                self.assertTrue(image.save(str(shoot / "frame-{0}.jpg".format(index))))
+                rgb = QColor(color)
+                image = np.full(
+                    (600, 800, 3),
+                    (rgb.blue(), rgb.green(), rgb.red()),
+                    dtype=np.uint8,
+                )
+                success, encoded = cv2.imencode(".bmp", image)
+                self.assertTrue(success)
+                (shoot / "frame-{0}.bmp".format(index)).write_bytes(encoded.tobytes())
 
             project = window.database.add_project(shoot)
             window._load_projects(project.id)
@@ -51,9 +60,13 @@ class GuiSmokeTests(unittest.TestCase):
             )
             self.assertEqual(Qt.CustomContextMenu, window.project_list.contextMenuPolicy())
             self.assertEqual(Qt.CustomContextMenu, window.photo_grid.contextMenuPolicy())
-            self.assertIn("frame-0.jpg", window.inspector.details_label.text())
+            self.assertIn("frame-0.bmp", window.inspector.details_label.text())
             self.assertIn(
                 "Model: yunet+face-mesh-litert",
+                window.inspector.details_label.text(),
+            )
+            self.assertIn(
+                "Object model: nanodet-opencv",
                 window.inspector.details_label.text(),
             )
             self.assertIn(

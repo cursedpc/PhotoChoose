@@ -81,12 +81,14 @@ class ComparisonPane(QFrame):
             )
         )
         metrics = [
-            "Focus {0} · Face focus {1} · Eye focus {2} · Faces {3} · "
-            "Eyes O/C/? {4}/{5}/{6} · Rank {7}".format(
+            "Focus {0} · Face focus {1} · Eye focus {2} · Subject focus {3} · "
+            "Faces {4} · Objects {5} · Eyes O/C/? {6}/{7}/{8} · Rank {9}".format(
                 self._number(photo.focus_score),
                 self._number(photo.subject_focus_score),
                 self._number(photo.eye_focus_score),
+                self._number(photo.primary_subject_focus_score),
                 photo.face_count,
+                photo.object_count,
                 photo.eye_count,
                 photo.closed_eye_count,
                 photo.uncertain_eye_count,
