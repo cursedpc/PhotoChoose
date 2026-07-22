@@ -174,6 +174,18 @@ class GuiSmokeTests(unittest.TestCase):
             viewer.resize(500, 400)
             viewer.show()
             app.processEvents()
+            self.assertEqual(
+                0,
+                viewer.carousel_model.photo_row(viewer.carousel.currentIndex()),
+            )
+            self.assertEqual("Current photo  1 of 3", viewer.carousel_position_label.text())
+            self.assertLessEqual(
+                abs(
+                    viewer.carousel.visualRect(viewer.carousel.currentIndex()).center().x()
+                    - viewer.carousel.viewport().rect().center().x()
+                ),
+                3,
+            )
             self.assertLessEqual(
                 viewer.image_label.pixmap().height(), viewer.image_label.height()
             )
@@ -183,6 +195,10 @@ class GuiSmokeTests(unittest.TestCase):
             self.assertEqual(0, viewer.current_index)
             viewer.next_photo()
             self.assertEqual(1, viewer.current_index)
+            self.assertEqual(
+                1,
+                viewer.carousel_model.photo_row(viewer.carousel.currentIndex()),
+            )
             QTest.keyClick(viewer, Qt.Key_Left)
             self.assertEqual(0, viewer.current_index)
             QTest.keyClick(viewer, Qt.Key_R)

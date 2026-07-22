@@ -46,6 +46,23 @@ QLabel#inspectorPreview {
     border: 1px solid #303136;
 }
 
+QWidget#fullscreenFilmstrip {
+    background: #151619;
+    border-top: 1px solid #303136;
+}
+
+QListView#fullscreenCarousel {
+    background: transparent;
+    border: none;
+    outline: none;
+}
+
+QLabel#carouselPosition {
+    color: #c9cbd0;
+    font-size: 12px;
+    font-weight: 600;
+}
+
 QFrame#workspaceHeader, QFrame#workspaceNavigation {
     background: transparent;
     border: none;

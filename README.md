@@ -48,8 +48,10 @@ PhotoChoose is a private, local-first desktop application for professional photo
 - Open **Compare group** for any blue `B####` burst or gray `G####` similarity badge.
   The two-up view provides synchronized zoom and pan, candidate cycling, score/reason
   evidence, and independent decisions for each frame.
-- Cull in fullscreen using the **More** menu, context menu, or keyboard shortcuts and navigate with Left/Right,
-  A/D, Space/Backspace, or a horizontal trackpad gesture; press `Esc` to close it.
+- Cull in fullscreen using the **More** menu, context menu, or keyboard shortcuts and navigate with
+  Left/Right, A/D, Space/Backspace, the centered decision-colored filmstrip, or a horizontal
+  trackpad gesture; press `Esc` to close it. The filmstrip loads thumbnails lazily, keeps the
+  current photo centered, and shows its exact position in the visible sequence.
 - Mark selected photographs using the inspector, context menus, or keyboard shortcuts.
 - Export kept and best photographs to a user-selected destination.
 - Resume with the same projects and decisions after restarting.

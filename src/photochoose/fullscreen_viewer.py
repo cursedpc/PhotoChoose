@@ -3,27 +3,46 @@ from __future__ import annotations
 import time
 from typing import List, Optional, Sequence
 
-from PySide6.QtCore import QEvent, QPoint, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import (
+    QEvent,
+    QItemSelectionModel,
+    QModelIndex,
+    QPoint,
+    QRect,
+    QSize,
+    Qt,
+    QTimer,
+    Signal,
+    Slot,
+)
 from PySide6.QtGui import (
+    QColor,
     QContextMenuEvent,
     QImage,
     QImageReader,
     QKeyEvent,
     QMouseEvent,
+    QPainter,
+    QPen,
     QPixmap,
     QResizeEvent,
     QShowEvent,
     QWheelEvent,
 )
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QDialog,
     QGestureEvent,
     QHBoxLayout,
     QLabel,
+    QListView,
     QMenu,
     QPushButton,
     QSizePolicy,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QSwipeGesture,
     QToolButton,
     QVBoxLayout,
@@ -33,6 +52,93 @@ from PySide6.QtWidgets import (
 from photochoose.analysis_overlay import render_analysis_overlay
 from photochoose.database import PhotoDatabase
 from photochoose.models import Decision, Photo, PhotoView
+from photochoose.thumbnail_model import PhotoListModel
+
+
+class FullscreenCarouselModel(PhotoListModel):
+    """Photo model with blank edge slots so every active frame can be centered."""
+
+    PaddingRole = Qt.UserRole + 40
+    EDGE_SLOTS = 6
+
+    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+        if parent.isValid() or not self.photos:
+            return 0
+        return len(self.photos) + self.EDGE_SLOTS * 2
+
+    def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
+        photo_row = self.photo_row(index)
+        if photo_row is None:
+            return role == self.PaddingRole
+        if role == self.PaddingRole:
+            return False
+        return super().data(self.createIndex(photo_row, 0), role)
+
+    def photo_row(self, index: QModelIndex) -> Optional[int]:
+        if not index.isValid():
+            return None
+        photo_row = index.row() - self.EDGE_SLOTS
+        return photo_row if 0 <= photo_row < len(self.photos) else None
+
+    def index_for_photo_row(self, photo_row: int) -> QModelIndex:
+        return self.index(photo_row + self.EDGE_SLOTS, 0)
+
+    def _model_row_for_photo_row(self, row: int) -> int:
+        return row + self.EDGE_SLOTS
+
+
+class FullscreenCarouselDelegate(QStyledItemDelegate):
+    """Compact filmstrip tile with decision color and an explicit active marker."""
+
+    ITEM_SIZE = QSize(118, 82)
+    DECISION_COLORS = {
+        Decision.UNREVIEWED.value: QColor("#555860"),
+        Decision.KEEP.value: QColor("#4f9c71"),
+        Decision.REVIEW.value: QColor("#c4974d"),
+        Decision.REJECT.value: QColor("#bd5b61"),
+    }
+
+    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
+        return self.ITEM_SIZE
+
+    def paint(
+        self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex
+    ) -> None:
+        if index.data(FullscreenCarouselModel.PaddingRole):
+            return
+        painter.save()
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
+        tile = option.rect.adjusted(5, 7, -5, -7)
+        image_box = tile.adjusted(3, 3, -3, -3)
+        painter.fillRect(tile, QColor("#111214"))
+
+        pixmap = index.data(Qt.DecorationRole)
+        if pixmap is not None and not pixmap.isNull():
+            scaled = pixmap.scaled(
+                image_box.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+            )
+            x = image_box.left() + (image_box.width() - scaled.width()) // 2
+            y = image_box.top() + (image_box.height() - scaled.height()) // 2
+            painter.drawPixmap(x, y, scaled)
+
+        decision = index.data(PhotoListModel.DecisionRole)
+        color = self.DECISION_COLORS.get(decision, self.DECISION_COLORS["unreviewed"])
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(color, 2))
+        painter.drawRect(tile.adjusted(1, 1, -1, -1))
+
+        if index.data(PhotoListModel.BestRole):
+            marker = QRect(tile.right() - 18, tile.top() + 2, 16, 15)
+            painter.fillRect(marker, QColor("#cda552"))
+            painter.setPen(QColor("#151619"))
+            painter.drawText(marker, Qt.AlignCenter, "B")
+
+        if option.state & QStyle.State_Selected:
+            painter.setPen(QPen(QColor("#eef3fa"), 2))
+            painter.drawRect(tile.adjusted(-2, -2, 2, 2))
+            active_marker = QRect(option.rect.center().x() - 12, option.rect.top() + 1, 24, 3)
+            painter.fillRect(active_marker, QColor("#6d9fe3"))
+        painter.restore()
 
 
 class FullscreenPhotoDialog(QDialog):
@@ -114,6 +220,40 @@ class FullscreenPhotoDialog(QDialog):
         self.footer_label.setAlignment(Qt.AlignCenter)
         self.footer_label.setObjectName("mutedLabel")
         layout.addWidget(self.footer_label)
+
+        filmstrip = QWidget()
+        filmstrip.setObjectName("fullscreenFilmstrip")
+        filmstrip_layout = QVBoxLayout(filmstrip)
+        filmstrip_layout.setContentsMargins(0, 4, 0, 0)
+        filmstrip_layout.setSpacing(3)
+        self.carousel_position_label = QLabel()
+        self.carousel_position_label.setObjectName("carouselPosition")
+        self.carousel_position_label.setAlignment(Qt.AlignCenter)
+        filmstrip_layout.addWidget(self.carousel_position_label)
+
+        self.carousel_model = FullscreenCarouselModel(database, self)
+        self.carousel_model.set_photos(self.photos)
+        self.carousel = QListView()
+        self.carousel.setObjectName("fullscreenCarousel")
+        self.carousel.setModel(self.carousel_model)
+        self.carousel.setItemDelegate(FullscreenCarouselDelegate(self.carousel))
+        self.carousel.setViewMode(QListView.IconMode)
+        self.carousel.setFlow(QListView.LeftToRight)
+        self.carousel.setWrapping(False)
+        self.carousel.setResizeMode(QListView.Fixed)
+        self.carousel.setMovement(QListView.Static)
+        self.carousel.setSelectionMode(QListView.SingleSelection)
+        self.carousel.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.carousel.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.carousel.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.carousel.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.carousel.setUniformItemSizes(True)
+        self.carousel.setSpacing(1)
+        self.carousel.setFixedHeight(86)
+        self.carousel.setFocusPolicy(Qt.NoFocus)
+        self.carousel.clicked.connect(self._carousel_clicked)
+        filmstrip_layout.addWidget(self.carousel)
+        layout.addWidget(filmstrip)
         self._show_current_photo()
 
     @property
@@ -130,19 +270,19 @@ class FullscreenPhotoDialog(QDialog):
             self._update_decision_badge(None)
             self.footer_label.setText("Esc to close")
             self.image_label.setText("No photograph to display")
+            self.carousel_position_label.setText("No photos")
             self._update_controls()
             return
         self.setWindowTitle(photo.filename)
         self.title_label.setText(photo.filename)
         self._update_decision_badge(photo)
         self.footer_label.setText(
-            "{0} / {1}   ·   ← → navigate   ·   K Keep   R Review   X Reject   "
-            "B Best   O evidence   Esc close".format(
-                self.current_index + 1, len(self.photos)
-            )
+            "← → navigate   ·   K Keep   R Review   X Reject   "
+            "B Best   O evidence   Esc close"
         )
         self._load_image(photo.display_path)
         self._update_controls()
+        self._sync_carousel()
 
     def _update_decision_badge(self, photo: Optional[Photo]) -> None:
         if photo is None:
@@ -201,6 +341,7 @@ class FullscreenPhotoDialog(QDialog):
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
         QTimer.singleShot(0, self._scale_current_image)
+        QTimer.singleShot(0, self._center_carousel_current)
 
     def _update_controls(self) -> None:
         has_photo = self.current_photo is not None
@@ -220,6 +361,34 @@ class FullscreenPhotoDialog(QDialog):
         if 0 <= target < len(self.photos):
             self.current_index = target
             self._show_current_photo()
+
+    @Slot(QModelIndex)
+    def _carousel_clicked(self, index: QModelIndex) -> None:
+        photo_row = self.carousel_model.photo_row(index)
+        if photo_row is None:
+            self._sync_carousel()
+            return
+        if photo_row == self.current_index:
+            return
+        self.current_index = photo_row
+        self._show_current_photo()
+
+    def _sync_carousel(self) -> None:
+        if not self.photos:
+            return
+        index = self.carousel_model.index_for_photo_row(self.current_index)
+        self.carousel.setCurrentIndex(index)
+        self.carousel.selectionModel().select(index, QItemSelectionModel.ClearAndSelect)
+        self.carousel_position_label.setText(
+            "Current photo  {0} of {1}".format(self.current_index + 1, len(self.photos))
+        )
+        QTimer.singleShot(0, self._center_carousel_current)
+
+    def _center_carousel_current(self) -> None:
+        if not self.photos:
+            return
+        index = self.carousel_model.index_for_photo_row(self.current_index)
+        self.carousel.scrollTo(index, QAbstractItemView.PositionAtCenter)
 
     def _set_decision(self, decision: Decision) -> None:
         photo = self.current_photo
@@ -245,6 +414,9 @@ class FullscreenPhotoDialog(QDialog):
         }
         if photo.id in refreshed:
             self.photos[self.current_index] = refreshed[photo.id]
+            self.carousel_model.update_photo(
+                self.current_index, refreshed[photo.id]
+            )
         self.photosChanged.emit()
         self._show_current_photo()
 
