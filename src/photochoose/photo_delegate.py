@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QRect, QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPainterPath, QPalette, QPen
+from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPalette, QPen
 from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
 from photochoose.analysis_overlay import paint_analysis_evidence
@@ -26,19 +26,16 @@ class PhotoDelegate(QStyledItemDelegate):
         hovered = bool(option.state & QStyle.State_MouseOver)
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor("#292d33") if hovered else QColor("#23262b"))
-        painter.drawRoundedRect(card, 10, 10)
+        painter.drawRect(card)
 
         image_box = QRect(card.left() + 8, card.top() + 8, card.width() - 16, 164)
         painter.setBrush(QColor("#111316"))
-        painter.drawRoundedRect(image_box, 7, 7)
+        painter.drawRect(image_box)
         pixmap = index.data(Qt.DecorationRole)
         if pixmap is not None and not pixmap.isNull():
             scaled = pixmap.scaled(image_box.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             x = image_box.left() + (image_box.width() - scaled.width()) // 2
             y = image_box.top() + (image_box.height() - scaled.height()) // 2
-            clip = QPainterPath()
-            clip.addRoundedRect(image_box, 7, 7)
-            painter.setClipPath(clip)
             painter.drawPixmap(x, y, scaled)
             if self.parent().property("analysisOverlayEnabled"):
                 photo = index.data(PhotoListModel.AnalysisEvidenceRole)
@@ -49,7 +46,6 @@ class PhotoDelegate(QStyledItemDelegate):
                         photo,
                         show_labels=False,
                     )
-            painter.setClipping(False)
 
         decision = index.data(PhotoListModel.DecisionRole)
         if decision != Decision.UNREVIEWED.value:
@@ -74,7 +70,7 @@ class PhotoDelegate(QStyledItemDelegate):
         if selected:
             painter.setPen(QPen(QColor("#75a7ef"), 2))
             painter.setBrush(Qt.NoBrush)
-            painter.drawRoundedRect(card.adjusted(1, 1, -1, -1), 10, 10)
+            painter.drawRect(card.adjusted(1, 1, -1, -1))
         painter.restore()
 
     @staticmethod
@@ -89,18 +85,18 @@ class PhotoDelegate(QStyledItemDelegate):
         badge = QRect(image_box.left() + 8, image_box.bottom() - 29, width, 21)
         painter.setPen(Qt.NoPen)
         painter.setBrush(colors[decision])
-        painter.drawRoundedRect(badge, 6, 6)
+        painter.drawRect(badge)
         painter.setPen(QColor("white"))
         painter.drawText(badge, Qt.AlignCenter, text)
 
     @staticmethod
     def _paint_best_badge(painter: QPainter, image_box: QRect) -> None:
-        badge = QRect(image_box.right() - 63, image_box.top() + 8, 55, 21)
+        badge = QRect(image_box.right() - 54, image_box.top() + 8, 46, 21)
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor("#d49a24"))
-        painter.drawRoundedRect(badge, 6, 6)
+        painter.drawRect(badge)
         painter.setPen(QColor("#171717"))
-        painter.drawText(badge, Qt.AlignCenter, "★ BEST")
+        painter.drawText(badge, Qt.AlignCenter, "BEST")
 
     @staticmethod
     def _paint_group_badge(painter: QPainter, image_box: QRect, group_id: str) -> None:
@@ -108,7 +104,7 @@ class PhotoDelegate(QStyledItemDelegate):
         badge = QRect(image_box.left() + 8, image_box.top() + 8, width, 21)
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor("#316f9f") if group_id.startswith("B") else QColor("#59616d"))
-        painter.drawRoundedRect(badge, 6, 6)
+        painter.drawRect(badge)
         painter.setPen(QColor("white"))
         painter.drawText(badge, Qt.AlignCenter, group_id)
 
@@ -118,6 +114,6 @@ class PhotoDelegate(QStyledItemDelegate):
         badge = QRect(image_box.right() - width - 8, image_box.bottom() - 30, width, 22)
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor("#43386f"))
-        painter.drawRoundedRect(badge, 5, 5)
+        painter.drawRect(badge)
         painter.setPen(QColor("white"))
         painter.drawText(badge, Qt.AlignCenter, text)

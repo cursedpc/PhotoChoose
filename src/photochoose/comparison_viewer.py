@@ -76,7 +76,7 @@ class ComparisonPane(QFrame):
                 lambda _checked=False, choice=decision: self._request_decision(choice)
             )
             actions.addWidget(button)
-        self.best_button = QPushButton("☆ Best")
+        self.best_button = QPushButton("Best")
         self.best_button.setCheckable(True)
         self.best_button.setProperty("kind", "best")
         self.best_button.clicked.connect(self._request_best)
@@ -95,7 +95,7 @@ class ComparisonPane(QFrame):
         for decision, button in self.decision_buttons.items():
             button.setChecked(photo.decision == decision)
         self.best_button.setChecked(photo.is_best)
-        self.best_button.setText("★ Best" if photo.is_best else "☆ Best")
+        self.best_button.setText("Best selected" if photo.is_best else "Best")
         metrics = [
             "Focus {0} · Face focus {1} · Eye focus {2} · Subject focus {3} · "
             "Faces {4} · Objects {5} · Eyes O/C/?/Obs {6}/{7}/{8}/{9} · Rank {10}".format(

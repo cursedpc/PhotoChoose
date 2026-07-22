@@ -314,8 +314,8 @@ without claiming corpus calibration.
 The desktop interface is organized as a modern three-zone studio workspace: a library
 rail, a distraction-free photographic canvas, and a contextual inspector. Infrequent project
 operations and scoring settings live in menus, while Analyze remains the single prominent project
-action. A shared graphite visual system provides restrained Sequoia-inspired layering without
-depending on macOS-only effects, so the same hierarchy can ship on Windows later.
+action. A continuous graphite visual system uses native typography and structural dividers instead
+of floating cards or macOS-only effects, so the same hierarchy can ship on Windows later.
 
 ## Current implementation status
 

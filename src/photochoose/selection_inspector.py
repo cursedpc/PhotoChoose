@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -31,27 +32,34 @@ class SelectionInspector(QFrame):
         layout.setAlignment(Qt.AlignTop)
 
         header = QHBoxLayout()
-        panel_title = QLabel("INSPECTOR")
+        panel_title = QLabel("Inspector")
         panel_title.setObjectName("eyebrow")
+        panel_title.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         header.addWidget(panel_title)
         header.addStretch(1)
         self.visible_count_label = QLabel("0 photos")
         self.visible_count_label.setObjectName("mutedLabel")
+        self.visible_count_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         header.addWidget(self.visible_count_label)
         layout.addLayout(header)
 
         self.selection_title = QLabel("Nothing selected")
         self.selection_title.setObjectName("selectionTitle")
         self.selection_title.setWordWrap(True)
+        self.selection_title.setMaximumHeight(44)
+        self.selection_title.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         layout.addWidget(self.selection_title)
         self.selection_hint = QLabel("Choose a photo to review or classify it.")
         self.selection_hint.setObjectName("inspectorHint")
         self.selection_hint.setWordWrap(True)
+        self.selection_hint.setMaximumHeight(44)
+        self.selection_hint.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         layout.addWidget(self.selection_hint)
 
         layout.addSpacing(4)
-        decision_label = QLabel("DECISION")
+        decision_label = QLabel("Decision")
         decision_label.setObjectName("eyebrow")
+        decision_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         layout.addWidget(decision_label)
 
         decisions = QHBoxLayout()
@@ -72,7 +80,7 @@ class SelectionInspector(QFrame):
             decisions.addWidget(button)
         layout.addLayout(decisions)
 
-        self.best_button = QPushButton("☆  Mark as Best")
+        self.best_button = QPushButton("Mark Best")
         self.best_button.setProperty("kind", "best")
         self.best_button.setCheckable(True)
         self.best_button.setToolTip("Keyboard: B")
@@ -93,8 +101,9 @@ class SelectionInspector(QFrame):
         open_row.addWidget(self.compare_button)
         layout.addLayout(open_row)
 
-        view_label = QLabel("VIEW")
+        view_label = QLabel("Display")
         view_label.setObjectName("eyebrow")
+        view_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         layout.addWidget(view_label)
         self.analysis_overlay_button = QPushButton("Analysis overlay")
         self.analysis_overlay_button.setCheckable(True)
@@ -257,7 +266,7 @@ class SelectionInspector(QFrame):
         self.review_button.setChecked(decision == "review")
         self.reject_button.setChecked(decision == "reject")
         self.best_button.setChecked(is_best)
-        self.best_button.setText("★  Best" if is_best else "☆  Mark as Best")
+        self.best_button.setText("Best" if is_best else "Mark Best")
 
     @staticmethod
     def _number(value: Optional[float]) -> str:

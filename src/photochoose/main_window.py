@@ -190,9 +190,10 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         root = QWidget()
         root_layout = QHBoxLayout(root)
-        root_layout.setContentsMargins(10, 10, 10, 8)
+        root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
         splitter = QSplitter(Qt.Horizontal)
+        splitter.setHandleWidth(1)
         splitter.addWidget(self._build_project_sidebar())
         splitter.addWidget(self._build_photo_workspace())
         self.inspector = self._build_selection_inspector()
@@ -218,12 +219,9 @@ class MainWindow(QMainWindow):
         brand = QLabel("PhotoChoose")
         brand.setObjectName("brandMark")
         layout.addWidget(brand)
-        caption = QLabel("PRIVATE PHOTO WORKSPACE")
-        caption.setObjectName("eyebrow")
-        layout.addWidget(caption)
-        layout.addSpacing(14)
+        layout.addSpacing(12)
 
-        title = QLabel("LIBRARY")
+        title = QLabel("Projects")
         title.setObjectName("eyebrow")
         layout.addWidget(title)
 
@@ -238,7 +236,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.project_list, 1)
 
         layout.addSpacing(6)
-        add_button = QPushButton("＋  Add shoot")
+        add_button = QPushButton("Add shoot…")
         add_button.setObjectName("addShootButton")
         add_button.setProperty("kind", "quiet")
         add_button.setToolTip("Add a folder as a new private photo project")
@@ -250,7 +248,7 @@ class MainWindow(QMainWindow):
         workspace = QFrame()
         workspace.setObjectName("workspaceSurface")
         layout = QVBoxLayout(workspace)
-        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setContentsMargins(16, 12, 16, 0)
         layout.setSpacing(10)
 
         header = QFrame()
@@ -281,7 +279,7 @@ class MainWindow(QMainWindow):
         title_row.addWidget(self.analyze_button)
 
         self.project_options_button = QToolButton()
-        self.project_options_button.setText("Project  ···")
+        self.project_options_button.setText("Project")
         self.project_options_button.setPopupMode(QToolButton.InstantPopup)
         self.project_options_button.setEnabled(False)
         self.project_options_menu = QMenu(self.project_options_button)
@@ -375,7 +373,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(12, 9, 12, 10)
         layout.setSpacing(7)
 
-        label = QLabel("PROJECT SETTINGS")
+        label = QLabel("Project settings")
         label.setObjectName("eyebrow")
         layout.addWidget(label)
 

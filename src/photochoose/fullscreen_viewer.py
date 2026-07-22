@@ -67,7 +67,7 @@ class FullscreenPhotoDialog(QDialog):
 
         toolbar = QHBoxLayout()
         self.menu_button = QToolButton()
-        self.menu_button.setText("···")
+        self.menu_button.setText("More")
         self.menu_button.setProperty("kind", "quiet")
         self.menu_button.setToolTip("Photo and view menu")
         self.menu_button.clicked.connect(self._show_toolbar_menu)
@@ -108,7 +108,7 @@ class FullscreenPhotoDialog(QDialog):
             "Clear", lambda: self._set_decision(Decision.UNREVIEWED)
         )
         self.clear_button.setProperty("kind", "quiet")
-        self.best_button = self._action_button("☆ Best", self._toggle_best)
+        self.best_button = self._action_button("Best", self._toggle_best)
         self.best_button.setProperty("kind", "best")
         self.best_button.setCheckable(True)
         self.overlay_button = self._action_button(
@@ -195,7 +195,7 @@ class FullscreenPhotoDialog(QDialog):
         self.review_button.setChecked(photo.decision == Decision.REVIEW)
         self.reject_button.setChecked(photo.decision == Decision.REJECT)
         self.best_button.setChecked(photo.is_best)
-        self.best_button.setText("★ Best" if photo.is_best else "☆ Best")
+        self.best_button.setText("Best selected" if photo.is_best else "Best")
 
     def _load_image(self, image_path: str) -> None:
         self.image_label.clear()

@@ -109,12 +109,12 @@ them as `Likely …` details in the photograph tooltip.
 ## Interface direction
 
 PhotoChoose uses a restrained dark studio interface built from three stable zones: library,
-photographic canvas, and contextual inspector. The visual system uses layered graphite surfaces,
-subtle translucent panel colors, generous spacing, and one blue primary action instead of a wall
-of equally weighted buttons. It borrows the working rhythm of professional creative software
-without copying another product's panels or iconography. Qt's Fusion base and the shared theme
-keep the hierarchy consistent on macOS and Windows; platform scaling and font behavior still
-require final review on the target machine.
+photographic canvas, and contextual inspector. These zones form one continuous graphite workspace
+separated by thin structural dividers rather than floating cards. Native system typography,
+restrained spacing, and one blue primary action replace decorative labels and a wall of equally
+weighted buttons. It borrows the working rhythm of professional creative software without copying
+another product's panels or iconography. Qt's Fusion base and the shared theme keep the hierarchy
+consistent on macOS and Windows; platform scaling still requires review on the target machine.
 
 ## Local subject models
 
