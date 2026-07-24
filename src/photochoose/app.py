@@ -7,11 +7,14 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 from PySide6.QtCore import QLibraryInfo, QStandardPaths
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from photochoose.database import PhotoDatabase
 from photochoose.main_window import MainWindow
 from photochoose.ui_theme import apply_application_theme
+
+APP_ICON_PATH = Path(__file__).with_name("branding") / "photochoose-icon.png"
 
 
 def repair_macos_qt_plugin_visibility(plugin_root: Optional[Path] = None) -> int:
@@ -59,6 +62,7 @@ def create_application(
         app = QApplication(list(arguments) if arguments is not None else sys.argv)
     app.setOrganizationName("PhotoChoose")
     app.setApplicationName("PhotoChoose")
+    app.setWindowIcon(QIcon(str(APP_ICON_PATH)))
     apply_application_theme(app)
     database = PhotoDatabase(database_path or default_database_path())
     window = MainWindow(database)
