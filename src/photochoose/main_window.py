@@ -6,6 +6,7 @@ from typing import Optional
 
 from PySide6.QtCore import (
     QItemSelectionModel,
+    QMimeData,
     QObject,
     QPoint,
     QRunnable,
@@ -15,7 +16,14 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import (
+    QAction,
+    QDragEnterEvent,
+    QDragLeaveEvent,
+    QDragMoveEvent,
+    QDropEvent,
+    QKeySequence,
+)
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -177,6 +185,9 @@ class MainWindow(QMainWindow):
         self.busy_projects = set()
         self.analyze_after_scan = set()
         self._progress_started_at: dict[tuple[str, int], float] = {}
+        self._project_import_queue: list[Project] = []
+        self._active_import_project_id: Optional[int] = None
+        self._status_before_folder_drag = ""
         self.photo_model = PhotoListModel(database, self)
         self.fullscreen_dialog: Optional[FullscreenPhotoDialog] = None
         self.comparison_dialog: Optional[GroupComparisonDialog] = None
@@ -184,6 +195,7 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("PhotoChoose")
         self.setObjectName("mainWindow")
+        self.setAcceptDrops(True)
         self.setMinimumSize(1080, 700)
         self.resize(1440, 900)
         self._create_project_actions()
@@ -232,7 +244,7 @@ class MainWindow(QMainWindow):
         splitter.setCollapsible(2, False)
         root_layout.addWidget(splitter)
         self.setCentralWidget(root)
-        self.statusBar().showMessage("Add a shoot folder to begin")
+        self.statusBar().showMessage("Add or drop a shoot folder to begin")
 
     def _build_project_sidebar(self) -> QWidget:
         sidebar = QFrame()
@@ -356,6 +368,8 @@ class MainWindow(QMainWindow):
         self.photo_grid.setIconSize(THUMBNAIL_SIZE)
         self.photo_grid.setGridSize(GRID_SIZE)
         self.photo_grid.setSpacing(7)
+        self.photo_grid.setAcceptDrops(False)
+        self.photo_grid.viewport().setAcceptDrops(False)
         self.photo_grid.setContextMenuPolicy(Qt.CustomContextMenu)
         self.photo_grid.customContextMenuRequested.connect(self._show_photo_context_menu)
         self.photo_grid.selectionModel().selectionChanged.connect(self._selection_changed)
@@ -374,7 +388,8 @@ class MainWindow(QMainWindow):
         self.empty_title.setAlignment(Qt.AlignCenter)
         empty_layout.addWidget(self.empty_title)
         self.empty_hint = QLabel(
-            "Add a shoot or choose one from the library. Originals always stay untouched."
+            "Add or drop a shoot folder, or choose one from the library. "
+            "Originals always stay untouched."
         )
         self.empty_hint.setObjectName("mutedLabel")
         self.empty_hint.setAlignment(Qt.AlignCenter)
@@ -553,13 +568,119 @@ class MainWindow(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "Choose a shoot folder")
         if not folder:
             return
-        try:
-            project = self.database.add_project(Path(folder))
-        except ValueError as exc:
-            QMessageBox.warning(self, "Cannot add folder", str(exc))
+        self._queue_project_folders([Path(folder)])
+
+    @staticmethod
+    def _folders_from_mime_data(mime_data: QMimeData) -> list[Path]:
+        if not mime_data.hasUrls():
+            return []
+        folders = []
+        seen = set()
+        for url in mime_data.urls():
+            if not url.isLocalFile():
+                continue
+            try:
+                folder = Path(url.toLocalFile()).expanduser().resolve()
+            except (OSError, RuntimeError):
+                continue
+            if not folder.is_dir() or folder in seen:
+                continue
+            seen.add(folder)
+            folders.append(folder)
+        return folders
+
+    def _set_folder_drop_feedback(self, active: bool) -> None:
+        if active:
+            if not self.project_list.property("dropActive"):
+                self._status_before_folder_drag = self.statusBar().currentMessage()
+            self.statusBar().showMessage("Drop folders to add and analyze them")
+        else:
+            if self._status_before_folder_drag:
+                self.statusBar().showMessage(self._status_before_folder_drag)
+            else:
+                self.statusBar().clearMessage()
+            self._status_before_folder_drag = ""
+        self.project_list.setProperty("dropActive", active)
+        self.project_list.style().unpolish(self.project_list)
+        self.project_list.style().polish(self.project_list)
+        self.project_list.viewport().update()
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        if self._folders_from_mime_data(event.mimeData()):
+            event.acceptProposedAction()
+            self._set_folder_drop_feedback(True)
             return
+        event.ignore()
+
+    def dragMoveEvent(self, event: QDragMoveEvent) -> None:
+        if self._folders_from_mime_data(event.mimeData()):
+            event.acceptProposedAction()
+            return
+        event.ignore()
+
+    def dragLeaveEvent(self, event: QDragLeaveEvent) -> None:
+        self._set_folder_drop_feedback(False)
+        event.accept()
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        folders = self._folders_from_mime_data(event.mimeData())
+        self._set_folder_drop_feedback(False)
+        if not folders:
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        self._queue_project_folders(folders)
+
+    def _queue_project_folders(self, folders: list[Path]) -> None:
+        projects = []
+        errors = []
+        queued_ids = {project.id for project in self._project_import_queue}
+        if self._active_import_project_id is not None:
+            queued_ids.add(self._active_import_project_id)
+        queued_ids.update(self.busy_projects)
+        for folder in folders:
+            try:
+                project = self.database.add_project(folder)
+            except ValueError as exc:
+                errors.append(str(exc))
+                continue
+            if project.id not in queued_ids:
+                projects.append(project)
+                queued_ids.add(project.id)
+        if errors:
+            QMessageBox.warning(self, "Cannot add folder", "\n".join(errors))
+        if not projects:
+            self.statusBar().showMessage("No folders were queued", 4000)
+            return
+        self._project_import_queue.extend(projects)
+        selected_project_id = self._active_import_project_id
+        if selected_project_id is None and self.current_project is not None:
+            selected_project_id = self.current_project.id
+        self._load_projects(selected_project_id or projects[0].id)
+        self.statusBar().showMessage(
+            "Added {0} folder{1} to the processing queue".format(
+                len(projects), "" if len(projects) == 1 else "s"
+            ),
+            3000,
+        )
+        self._start_next_import_project()
+
+    def _start_next_import_project(self) -> None:
+        if self._active_import_project_id is not None:
+            return
+        if not self._project_import_queue:
+            return
+        project = self._project_import_queue.pop(0)
+        self._active_import_project_id = project.id
         self._load_projects(project.id)
         self._start_scan(project, analyze_after=True)
+
+    def _complete_import_project(self, project_id: int) -> None:
+        if project_id != self._active_import_project_id:
+            return
+        self._active_import_project_id = None
+        if self._project_import_queue:
+            QTimer.singleShot(0, self._start_next_import_project)
 
     @Slot(QListWidgetItem, QListWidgetItem)
     def _project_changed(self, current: Optional[QListWidgetItem], _previous) -> None:
@@ -735,8 +856,11 @@ class MainWindow(QMainWindow):
             project = self.database.get_project(project_id)
             if project is not None:
                 self._start_analysis(project)
+                if project_id not in self.busy_projects:
+                    self._complete_import_project(project_id)
                 return
         self.statusBar().showMessage("Scan complete: {0} supported photos".format(count), 5000)
+        self._complete_import_project(project_id)
 
     @Slot(int, str)
     def _scan_failed(self, project_id: int, message: str) -> None:
@@ -747,6 +871,7 @@ class MainWindow(QMainWindow):
             self._update_project_action_buttons()
         QMessageBox.warning(self, "Scan failed", message)
         self.statusBar().showMessage("Scan failed", 5000)
+        self._complete_import_project(project_id)
 
     @Slot()
     def _analyze_current_project(self) -> None:
@@ -802,6 +927,7 @@ class MainWindow(QMainWindow):
             ),
             10000,
         )
+        self._complete_import_project(project_id)
 
     @Slot(int, str)
     def _analysis_failed(self, project_id: int, message: str) -> None:
@@ -811,6 +937,7 @@ class MainWindow(QMainWindow):
             self._update_project_action_buttons()
         QMessageBox.warning(self, "Analysis failed", message)
         self.statusBar().showMessage("Analysis failed", 5000)
+        self._complete_import_project(project_id)
 
     @Slot()
     def _open_calibration_report(self) -> None:
@@ -1077,7 +1204,8 @@ class MainWindow(QMainWindow):
         self.photo_model.clear()
         self.empty_title.setText("Your workspace is ready")
         self.empty_hint.setText(
-            "Add a shoot or choose one from the library. Originals always stay untouched."
+            "Add or drop a shoot folder, or choose one from the library. "
+            "Originals always stay untouched."
         )
         self.canvas_stack.setCurrentIndex(0)
         self.inspector.set_photos([], 0)

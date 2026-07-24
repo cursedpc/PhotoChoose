@@ -117,6 +117,9 @@ restrained spacing, and one blue primary action replace decorative labels and a 
 weighted buttons. It borrows the working rhythm of professional creative software without copying
 another product's panels or iconography. Qt's Fusion base and the shared theme keep the hierarchy
 consistent on macOS and Windows; platform scaling still requires review on the target machine.
+Shoot folders can be dragged from Finder or Windows Explorer onto the application. Multiple
+folders are accepted together and processed sequentially so model analysis does not compete with
+itself for CPU and memory; ordinary files and non-local links are ignored.
 
 ## Local subject models
 
@@ -187,7 +190,7 @@ also emitted as a portable ZIP for target-machine diagnostics.
 
 The build must run on Windows; PyInstaller does not cross-build Windows executables from macOS.
 Version tags and manual workflow runs execute the Windows builder in
-`.github/workflows/windows-installer.yml`. A matching tag such as `v0.1.1` publishes the tested
+`.github/workflows/windows-installer.yml`. A matching tag such as `v0.1.2` publishes the tested
 installer, portable ZIP, and SHA-256 checksums directly to GitHub Releases. Local Windows build
 instructions are in `packaging/windows/README.md`. To upgrade, download and run the newer setup
 file directly: its stable application identity reuses the existing installation and preserves the
