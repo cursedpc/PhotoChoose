@@ -11,8 +11,8 @@ import numpy as np
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QItemSelectionModel, Qt  # noqa: E402
-from PySide6.QtGui import QColor  # noqa: E402
+from PySide6.QtCore import QItemSelectionModel, QMimeData, QPoint, Qt, QUrl  # noqa: E402
+from PySide6.QtGui import QColor, QDragEnterEvent, QDragLeaveEvent  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QFrame, QListView, QPushButton  # noqa: E402
 
@@ -24,6 +24,65 @@ from photochoose.models import Decision, PhotoView  # noqa: E402
 
 
 class GuiSmokeTests(unittest.TestCase):
+    def test_dropped_folders_are_filtered_and_processed_in_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            app = create_application(["photochoose-drop-test"], root / "state.sqlite3")
+            window = app.main_window
+            self.assertTrue(window.acceptDrops())
+            self.assertFalse(window.photo_grid.acceptDrops())
+            first = root / "First shoot"
+            second = root / "Second shoot"
+            first.mkdir()
+            second.mkdir()
+            ordinary_file = root / "photo.jpg"
+            ordinary_file.write_bytes(b"not needed for this import test")
+            mime_data = QMimeData()
+            mime_data.setUrls(
+                [
+                    QUrl.fromLocalFile(str(first)),
+                    QUrl.fromLocalFile(str(ordinary_file)),
+                    QUrl("https://example.com/not-local"),
+                    QUrl.fromLocalFile(str(first)),
+                    QUrl.fromLocalFile(str(second)),
+                ]
+            )
+
+            folders = window._folders_from_mime_data(mime_data)
+            self.assertEqual([first.resolve(), second.resolve()], folders)
+            drag_enter = QDragEnterEvent(
+                QPoint(10, 10),
+                Qt.CopyAction,
+                mime_data,
+                Qt.LeftButton,
+                Qt.NoModifier,
+            )
+            window.dragEnterEvent(drag_enter)
+            self.assertTrue(drag_enter.isAccepted())
+            self.assertTrue(window.project_list.property("dropActive"))
+            drag_leave = QDragLeaveEvent()
+            window.dragLeaveEvent(drag_leave)
+            self.assertFalse(window.project_list.property("dropActive"))
+
+            started = []
+            window._start_scan = lambda project, analyze_after=False: started.append(
+                (project, analyze_after)
+            )
+            window._queue_project_folders(folders)
+            self.assertEqual(1, len(started))
+            self.assertEqual(first.resolve(), Path(started[0][0].root_path))
+            self.assertTrue(started[0][1])
+            self.assertEqual(1, len(window._project_import_queue))
+
+            window._complete_import_project(started[0][0].id)
+            app.processEvents()
+            self.assertEqual(2, len(started))
+            self.assertEqual(second.resolve(), Path(started[1][0].root_path))
+            self.assertTrue(started[1][1])
+            window._complete_import_project(started[1][0].id)
+            self.assertIsNone(window._active_import_project_id)
+            self.assertEqual([], window._project_import_queue)
+
     def test_progress_message_estimates_remaining_time(self) -> None:
         self.assertEqual(
             "Scanning… 0 / 20 · estimating time…",

@@ -231,6 +231,11 @@ QListWidget::item:selected {
     background: #37445a;
 }
 
+QListWidget#projectList[dropActive="true"] {
+    background: #242a33;
+    border: 1px solid #5577a8;
+}
+
 QListView#photoGrid {
     background: #141518;
     border: none;

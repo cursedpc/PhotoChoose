@@ -117,6 +117,9 @@ restrained spacing, and one blue primary action replace decorative labels and a 
 weighted buttons. It borrows the working rhythm of professional creative software without copying
 another product's panels or iconography. Qt's Fusion base and the shared theme keep the hierarchy
 consistent on macOS and Windows; platform scaling still requires review on the target machine.
+Shoot folders can be dragged from Finder or Windows Explorer onto the application. Multiple
+folders are accepted together and processed sequentially so model analysis does not compete with
+itself for CPU and memory; ordinary files and non-local links are ignored.
 
 ## Local subject models
 
