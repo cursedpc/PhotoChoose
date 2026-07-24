@@ -304,10 +304,25 @@ class GuiSmokeTests(unittest.TestCase):
             self.assertEqual(1, viewer.current_index)
             QTest.keyClick(viewer, Qt.Key_Left)
             self.assertEqual(0, viewer.current_index)
-            QTest.keyClick(viewer, Qt.Key_R)
+            for key, expected_decision in (
+                (Qt.Key_K, Decision.KEEP),
+                (Qt.Key_R, Decision.REVIEW),
+                (Qt.Key_X, Decision.REJECT),
+            ):
+                viewer.menu_button.setFocus()
+                QTest.keyClick(viewer.menu_button, key)
+                refreshed = window.database.list_photos(project.id, PhotoView.ALL)
+                self.assertEqual(expected_decision, refreshed[0].decision)
+                self.assertTrue(
+                    viewer.decision_badge.text().startswith(
+                        expected_decision.value.title()
+                    )
+                )
+            viewer.next_button.setFocus()
+            was_best = refreshed[0].is_best
+            QTest.keyClick(viewer.next_button, Qt.Key_B)
             refreshed = window.database.list_photos(project.id, PhotoView.ALL)
-            self.assertEqual(Decision.REVIEW, refreshed[0].decision)
-            self.assertTrue(viewer.decision_badge.text().startswith("Review"))
+            self.assertNotEqual(was_best, refreshed[0].is_best)
             self.assertIn(
                 "Close fullscreen",
                 [action.text() for action in viewer._context_menu().actions()],
@@ -316,7 +331,8 @@ class GuiSmokeTests(unittest.TestCase):
                 "Analysis overlay",
                 [action.text() for action in viewer._context_menu().actions()],
             )
-            QTest.keyClick(viewer, Qt.Key_O)
+            viewer.previous_button.setFocus()
+            QTest.keyClick(viewer.previous_button, Qt.Key_O)
             self.assertTrue(viewer.overlay_enabled)
             viewer.close()
 

@@ -21,7 +21,6 @@ from PySide6.QtGui import (
     QImage,
     QImageIOHandler,
     QImageReader,
-    QKeyEvent,
     QMouseEvent,
     QPainter,
     QPen,
@@ -265,12 +264,25 @@ class FullscreenPhotoDialog(QDialog):
         filmstrip_layout.addWidget(self.carousel)
         layout.addWidget(filmstrip)
 
-        self.previous_shortcut = QShortcut(Qt.Key_Left, self)
-        self.previous_shortcut.setContext(Qt.WindowShortcut)
-        self.previous_shortcut.activated.connect(self.previous_photo)
-        self.next_shortcut = QShortcut(Qt.Key_Right, self)
-        self.next_shortcut.setContext(Qt.WindowShortcut)
-        self.next_shortcut.activated.connect(self.next_photo)
+        shortcut_specs = (
+            (Qt.Key_Left, self.previous_photo),
+            (Qt.Key_Right, self.next_photo),
+            (Qt.Key_Escape, self.close),
+            (Qt.Key_Space, self.next_photo),
+            (Qt.Key_Backspace, self.previous_photo),
+            (Qt.Key_K, lambda: self._set_decision(Decision.KEEP)),
+            (Qt.Key_R, lambda: self._set_decision(Decision.REVIEW)),
+            (Qt.Key_X, lambda: self._set_decision(Decision.REJECT)),
+            (Qt.Key_U, lambda: self._set_decision(Decision.UNREVIEWED)),
+            (Qt.Key_B, self._toggle_best),
+            (Qt.Key_O, lambda: self._set_analysis_overlay(not self.overlay_enabled)),
+        )
+        self.window_shortcuts: List[QShortcut] = []
+        for key, handler in shortcut_specs:
+            shortcut = QShortcut(key, self)
+            shortcut.setContext(Qt.WindowShortcut)
+            shortcut.activated.connect(handler)
+            self.window_shortcuts.append(shortcut)
         self._show_current_photo()
 
     @property
@@ -582,37 +594,6 @@ class FullscreenPhotoDialog(QDialog):
             event.accept()
             return
         super().wheelEvent(event)
-
-    def keyPressEvent(self, event: QKeyEvent) -> None:
-        key = event.key()
-        if key == Qt.Key_Escape:
-            self.close()
-            return
-        if key == Qt.Key_Space:
-            self.next_photo()
-            return
-        if key == Qt.Key_Backspace:
-            self.previous_photo()
-            return
-        if key == Qt.Key_K:
-            self._set_decision(Decision.KEEP)
-            return
-        if key == Qt.Key_R:
-            self._set_decision(Decision.REVIEW)
-            return
-        if key == Qt.Key_X:
-            self._set_decision(Decision.REJECT)
-            return
-        if key == Qt.Key_U:
-            self._set_decision(Decision.UNREVIEWED)
-            return
-        if key == Qt.Key_B:
-            self._toggle_best()
-            return
-        if key == Qt.Key_O:
-            self._set_analysis_overlay(not self.overlay_enabled)
-            return
-        super().keyPressEvent(event)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         self.close()
