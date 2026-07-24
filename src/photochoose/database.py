@@ -4,7 +4,7 @@ import json
 import sqlite3
 from contextlib import closing
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from photochoose.analysis_profiles import ANALYSIS_VERSION, get_analysis_profile
 from photochoose.assets import discover_logical_assets
@@ -371,7 +371,11 @@ class PhotoDatabase:
             removed_bytes += size
         return removed_count, removed_bytes
 
-    def scan_project(self, project_id: int) -> int:
+    def scan_project(
+        self,
+        project_id: int,
+        progress: Optional[Callable[[int, int], None]] = None,
+    ) -> int:
         project = self.get_project(project_id)
         if project is None:
             raise ValueError("Unknown project id: {0}".format(project_id))
@@ -402,6 +406,7 @@ class PhotoDatabase:
             root,
             self.path.parent / "raw-previews",
             existing_paths,
+            progress,
         )
 
         with closing(self._connect()) as connection:

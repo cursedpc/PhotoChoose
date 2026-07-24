@@ -241,8 +241,9 @@ photos-per-minute, memory usage, and thermals.
 **Implementation status:** the reproducible x64 PyInstaller/Inno Setup build pipeline is present,
 including portable and installed artifacts, automated install/start/uninstall smoke checks, and
 tag-driven publication of the installer, portable ZIP, and checksums under GitHub Releases. The
-resulting unsigned installer still requires validation on the exact Windows notebook before this
-milestone can be completed.
+installer supports in-place upgrades using its stable application identity, and CI verifies a
+second installation over the first before uninstalling. The resulting unsigned installer still
+requires validation on the exact Windows notebook before this milestone can be completed.
 
 - Produce a signed or locally trusted Windows build.
 - Bundle models and runtimes without network downloads during normal use.

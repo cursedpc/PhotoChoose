@@ -19,10 +19,25 @@ from PySide6.QtWidgets import QFrame, QListView, QPushButton  # noqa: E402
 from photochoose.analysis_profiles import ANALYSIS_VERSION  # noqa: E402
 from photochoose.app import create_application  # noqa: E402
 from photochoose.fullscreen_viewer import FullscreenPhotoDialog  # noqa: E402
+from photochoose.main_window import _progress_message  # noqa: E402
 from photochoose.models import Decision, PhotoView  # noqa: E402
 
 
 class GuiSmokeTests(unittest.TestCase):
+    def test_progress_message_estimates_remaining_time(self) -> None:
+        self.assertEqual(
+            "Scanning… 0 / 20 · estimating time…",
+            _progress_message("Scanning…", 0, 20, 0.5),
+        )
+        self.assertEqual(
+            "Analyzing locally… 10 / 30 · ETA 4 min",
+            _progress_message("Analyzing locally…", 10, 30, 120.0),
+        )
+        self.assertEqual(
+            "Analyzing locally… 29 / 30 · ETA less than 1 min",
+            _progress_message("Analyzing locally…", 29, 30, 30.0),
+        )
+
     def test_classification_preserves_grid_context(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -304,10 +319,25 @@ class GuiSmokeTests(unittest.TestCase):
             self.assertEqual(1, viewer.current_index)
             QTest.keyClick(viewer, Qt.Key_Left)
             self.assertEqual(0, viewer.current_index)
-            QTest.keyClick(viewer, Qt.Key_R)
+            for key, expected_decision in (
+                (Qt.Key_K, Decision.KEEP),
+                (Qt.Key_R, Decision.REVIEW),
+                (Qt.Key_X, Decision.REJECT),
+            ):
+                viewer.menu_button.setFocus()
+                QTest.keyClick(viewer.menu_button, key)
+                refreshed = window.database.list_photos(project.id, PhotoView.ALL)
+                self.assertEqual(expected_decision, refreshed[0].decision)
+                self.assertTrue(
+                    viewer.decision_badge.text().startswith(
+                        expected_decision.value.title()
+                    )
+                )
+            viewer.next_button.setFocus()
+            was_best = refreshed[0].is_best
+            QTest.keyClick(viewer.next_button, Qt.Key_B)
             refreshed = window.database.list_photos(project.id, PhotoView.ALL)
-            self.assertEqual(Decision.REVIEW, refreshed[0].decision)
-            self.assertTrue(viewer.decision_badge.text().startswith("Review"))
+            self.assertNotEqual(was_best, refreshed[0].is_best)
             self.assertIn(
                 "Close fullscreen",
                 [action.text() for action in viewer._context_menu().actions()],
@@ -316,7 +346,8 @@ class GuiSmokeTests(unittest.TestCase):
                 "Analysis overlay",
                 [action.text() for action in viewer._context_menu().actions()],
             )
-            QTest.keyClick(viewer, Qt.Key_O)
+            viewer.previous_button.setFocus()
+            QTest.keyClick(viewer.previous_button, Qt.Key_O)
             self.assertTrue(viewer.overlay_enabled)
             viewer.close()
 

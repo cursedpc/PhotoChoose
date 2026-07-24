@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -60,7 +61,26 @@ VIEWS = [
 ]
 
 
+def _progress_message(label: str, complete: int, total: int, elapsed: float) -> str:
+    base = "{0} {1} / {2}".format(label, complete, total)
+    if complete <= 0 or total <= 0 or elapsed < 1.0:
+        return base + " · estimating time…"
+    remaining = max(0.0, elapsed * (total - complete) / complete)
+    if remaining < 60:
+        estimate = "less than 1 min"
+    elif remaining < 3600:
+        minutes = max(1, round(remaining / 60))
+        estimate = "{0} min".format(minutes)
+    else:
+        hours, minutes = divmod(max(1, round(remaining / 60)), 60)
+        estimate = "{0} h".format(hours)
+        if minutes:
+            estimate += " {0} min".format(minutes)
+    return base + " · ETA " + estimate
+
+
 class _ScanSignals(QObject):
+    progress = Signal(int, int, int)
     finished = Signal(int, int)
     failed = Signal(int, str)
 
@@ -74,7 +94,12 @@ class _ScanTask(QRunnable):
 
     def run(self) -> None:
         try:
-            count = self.database.scan_project(self.project_id)
+            count = self.database.scan_project(
+                self.project_id,
+                lambda complete, total: self.signals.progress.emit(
+                    self.project_id, complete, total
+                ),
+            )
         except Exception as exc:  # displayed to the user at the UI boundary
             self.signals.failed.emit(self.project_id, str(exc))
             return
@@ -151,6 +176,7 @@ class MainWindow(QMainWindow):
         self.thread_pool = QThreadPool.globalInstance()
         self.busy_projects = set()
         self.analyze_after_scan = set()
+        self._progress_started_at: dict[tuple[str, int], float] = {}
         self.photo_model = PhotoListModel(database, self)
         self.fullscreen_dialog: Optional[FullscreenPhotoDialog] = None
         self.comparison_dialog: Optional[GroupComparisonDialog] = None
@@ -676,15 +702,30 @@ class MainWindow(QMainWindow):
         if analyze_after:
             self.analyze_after_scan.add(project.id)
         self.busy_projects.add(project.id)
+        self._progress_started_at[("scan", project.id)] = time.monotonic()
         self._update_project_action_buttons()
-        self.statusBar().showMessage("Scanning {0}…".format(project.name))
+        self.statusBar().showMessage("Discovering photos in {0}…".format(project.name))
         task = _ScanTask(self.database, project.id)
+        task.signals.progress.connect(self._scan_progress)
         task.signals.finished.connect(self._scan_finished)
         task.signals.failed.connect(self._scan_failed)
         self.thread_pool.start(task)
 
+    @Slot(int, int, int)
+    def _scan_progress(self, project_id: int, complete: int, total: int) -> None:
+        if self.current_project and self.current_project.id == project_id:
+            started_at = self._progress_started_at.get(
+                ("scan", project_id), time.monotonic()
+            )
+            self.statusBar().showMessage(
+                _progress_message(
+                    "Scanning…", complete, total, time.monotonic() - started_at
+                )
+            )
+
     @Slot(int, int)
     def _scan_finished(self, project_id: int, count: int) -> None:
+        self._progress_started_at.pop(("scan", project_id), None)
         self.busy_projects.discard(project_id)
         if self.current_project and self.current_project.id == project_id:
             self._update_project_action_buttons()
@@ -699,6 +740,7 @@ class MainWindow(QMainWindow):
 
     @Slot(int, str)
     def _scan_failed(self, project_id: int, message: str) -> None:
+        self._progress_started_at.pop(("scan", project_id), None)
         self.analyze_after_scan.discard(project_id)
         self.busy_projects.discard(project_id)
         if self.current_project and self.current_project.id == project_id:
@@ -720,6 +762,7 @@ class MainWindow(QMainWindow):
             )
             return
         self.busy_projects.add(project.id)
+        self._progress_started_at[("analysis", project.id)] = time.monotonic()
         self._update_project_action_buttons()
         self.statusBar().showMessage("Starting local analysis of {0}…".format(project.name))
         task = _AnalysisTask(self.database, project.id, project.analysis_profile)
@@ -731,10 +774,21 @@ class MainWindow(QMainWindow):
     @Slot(int, int, int)
     def _analysis_progress(self, project_id: int, complete: int, total: int) -> None:
         if self.current_project and self.current_project.id == project_id:
-            self.statusBar().showMessage("Analyzing locally… {0} / {1}".format(complete, total))
+            started_at = self._progress_started_at.get(
+                ("analysis", project_id), time.monotonic()
+            )
+            self.statusBar().showMessage(
+                _progress_message(
+                    "Analyzing locally…",
+                    complete,
+                    total,
+                    time.monotonic() - started_at,
+                )
+            )
 
     @Slot(int, object)
     def _analysis_finished(self, project_id: int, totals) -> None:
+        self._progress_started_at.pop(("analysis", project_id), None)
         self.busy_projects.discard(project_id)
         if self.current_project and self.current_project.id == project_id:
             self._update_project_action_buttons()
@@ -751,6 +805,7 @@ class MainWindow(QMainWindow):
 
     @Slot(int, str)
     def _analysis_failed(self, project_id: int, message: str) -> None:
+        self._progress_started_at.pop(("analysis", project_id), None)
         self.busy_projects.discard(project_id)
         if self.current_project and self.current_project.id == project_id:
             self._update_project_action_buttons()

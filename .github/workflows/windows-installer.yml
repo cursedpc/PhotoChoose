@@ -90,7 +90,7 @@ jobs:
             throw "Inno Setup failed with exit code $LASTEXITCODE"
           }
 
-      - name: Verify installed application and uninstaller
+      - name: Verify install, in-place upgrade, and uninstaller
         shell: pwsh
         run: |
           $installer = Get-Item "release\PhotoChoose-Setup-$env:APP_VERSION-x64.exe"
@@ -106,6 +106,17 @@ jobs:
               Get-Content $env:PHOTOCHOOSE_SMOKE_LOG
             }
             throw "Installed PhotoChoose smoke test failed with exit code $($smoke.ExitCode)"
+          }
+          $upgrade = Start-Process $installer.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=$installDir" -Wait -PassThru
+          if ($upgrade.ExitCode -ne 0) {
+            throw "In-place upgrade failed with exit code $($upgrade.ExitCode)"
+          }
+          $upgradeSmoke = Start-Process "$installDir\PhotoChoose.exe" -ArgumentList "--smoke-test" -Wait -PassThru
+          if ($upgradeSmoke.ExitCode -ne 0) {
+            if (Test-Path $env:PHOTOCHOOSE_SMOKE_LOG) {
+              Get-Content $env:PHOTOCHOOSE_SMOKE_LOG
+            }
+            throw "Upgraded PhotoChoose smoke test failed with exit code $($upgradeSmoke.ExitCode)"
           }
           $uninstall = Start-Process "$installDir\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
           if ($uninstall.ExitCode -ne 0) {
