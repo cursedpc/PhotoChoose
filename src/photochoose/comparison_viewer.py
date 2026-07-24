@@ -32,29 +32,33 @@ class ComparisonPane(QFrame):
         self.image = QImage()
         self.zoom_percent = 100
         self.overlay_enabled = False
-        self.setFrameShape(QFrame.StyledPanel)
+        self.setObjectName("comparisonPane")
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setContentsMargins(11, 11, 11, 10)
+        layout.setSpacing(8)
         self.heading = QLabel(side)
-        self.heading.setStyleSheet("font-size: 15px; font-weight: 600;")
+        self.heading.setObjectName("panelTitle")
         layout.addWidget(self.heading)
 
         self.scroll_area = QScrollArea()
         self.scroll_area.setAlignment(Qt.AlignCenter)
         self.scroll_area.setWidgetResizable(False)
         self.image_label = QLabel()
+        self.image_label.setObjectName("fullscreenCanvas")
         self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setStyleSheet("background: #101216;")
         self.scroll_area.setWidget(self.image_label)
         layout.addWidget(self.scroll_area, 1)
 
         self.details = QLabel()
+        self.details.setObjectName("mutedLabel")
         self.details.setWordWrap(True)
         self.details.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(self.details)
 
         actions = QHBoxLayout()
+        actions.setSpacing(6)
+        self.decision_buttons = {}
         for text, decision in (
             ("Keep", Decision.KEEP),
             ("Review", Decision.REVIEW),
@@ -62,13 +66,21 @@ class ComparisonPane(QFrame):
             ("Clear", Decision.UNREVIEWED),
         ):
             button = QPushButton(text)
+            if decision != Decision.UNREVIEWED:
+                button.setCheckable(True)
+                button.setProperty("kind", decision.value)
+                self.decision_buttons[decision] = button
+            else:
+                button.setProperty("kind", "quiet")
             button.clicked.connect(
                 lambda _checked=False, choice=decision: self._request_decision(choice)
             )
             actions.addWidget(button)
-        best_button = QPushButton("Toggle Best")
-        best_button.clicked.connect(self._request_best)
-        actions.addWidget(best_button)
+        self.best_button = QPushButton("Best")
+        self.best_button.setCheckable(True)
+        self.best_button.setProperty("kind", "best")
+        self.best_button.clicked.connect(self._request_best)
+        actions.addWidget(self.best_button)
         layout.addLayout(actions)
 
     def set_photo(self, photo: Photo) -> None:
@@ -80,6 +92,10 @@ class ComparisonPane(QFrame):
                 "    ·    ★ Best" if photo.is_best else "",
             )
         )
+        for decision, button in self.decision_buttons.items():
+            button.setChecked(photo.decision == decision)
+        self.best_button.setChecked(photo.is_best)
+        self.best_button.setText("Best selected" if photo.is_best else "Best")
         metrics = [
             "Focus {0} · Face focus {1} · Eye focus {2} · Subject focus {3} · "
             "Faces {4} · Objects {5} · Eyes O/C/?/Obs {6}/{7}/{8}/{9} · Rank {10}".format(
@@ -183,17 +199,22 @@ class GroupComparisonDialog(QDialog):
         self.resize(1280, 820)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 10)
+        layout.setSpacing(9)
         toolbar = QHBoxLayout()
         self.group_label = QLabel()
-        self.group_label.setStyleSheet("font-size: 16px; font-weight: 600;")
+        self.group_label.setObjectName("panelTitle")
         toolbar.addWidget(self.group_label, 1)
-        previous = QPushButton("← Previous candidate")
+        previous = QPushButton("← Previous")
+        previous.setProperty("kind", "quiet")
         previous.clicked.connect(self.previous_candidate)
         toolbar.addWidget(previous)
         swap = QPushButton("Swap sides")
+        swap.setProperty("kind", "quiet")
         swap.clicked.connect(self.swap_sides)
         toolbar.addWidget(swap)
-        following = QPushButton("Next candidate →")
+        following = QPushButton("Next →")
+        following.setProperty("kind", "quiet")
         following.clicked.connect(self.next_candidate)
         toolbar.addWidget(following)
         toolbar.addWidget(QLabel("Zoom"))
@@ -206,11 +227,12 @@ class GroupComparisonDialog(QDialog):
         self.zoom_label = QLabel("Fit")
         self.zoom_label.setMinimumWidth(42)
         toolbar.addWidget(self.zoom_label)
-        self.overlay_button = QPushButton("Analysis  O")
+        self.overlay_button = QPushButton("Evidence")
         self.overlay_button.setCheckable(True)
         self.overlay_button.toggled.connect(self._overlay_changed)
         toolbar.addWidget(self.overlay_button)
         close = QPushButton("Close")
+        close.setProperty("kind", "quiet")
         close.clicked.connect(self.close)
         toolbar.addWidget(close)
         layout.addLayout(toolbar)

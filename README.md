@@ -27,15 +27,16 @@ PhotoChoose is a private, local-first desktop application for professional photo
 - Promote a questionable grouped frame to Reject only when another frame from the same
   moment ranks at least 25 points higher; unique photos and manual decisions stay protected.
 - Populate conservative `Keep`, `Review`, and `Reject` recommendations with visible reasons.
-- Navigate projects from the left sidebar.
+- Navigate projects from the quiet left library rail; project operations stay in the
+  **Project** menu instead of competing with the photographic workspace.
 - Right-click a project (or use a macOS two-finger secondary click) to rescan,
   analyze, export, or close it.
 - Close a project to remove it from the sidebar while preserving metadata, analysis, and
   decisions. Generated RAW-only previews are deleted automatically and recreated if the
   project is opened again; original RAW/JPEG/XMP files are never touched.
 - Browse `All`, `Best`, `Keep`, `Review`, and `Reject` inside the selected project.
-- Inspect focus, exposure, face/eye/object, similarity, ranking, and decision reasons in a
-  collapsible panel above the thumbnail grid.
+- Classify the active selection in the contextual right inspector. Detailed focus, exposure,
+  face/eye/object, similarity, ranking, and decision evidence stays collapsed until requested.
 - Toggle the **Analysis overlay** (`O`) in the grid, fullscreen viewer, or comparison view
   to inspect primary/supporting object boxes and primary/background face boxes,
   open/closed/uncertain eye geometry, and local sharpness measurements.
@@ -47,8 +48,10 @@ PhotoChoose is a private, local-first desktop application for professional photo
 - Open **Compare group** for any blue `B####` burst or gray `G####` similarity badge.
   The two-up view provides synchronized zoom and pan, candidate cycling, score/reason
   evidence, and independent decisions for each frame.
-- Cull in fullscreen using its toolbar or context menu and navigate with Left/Right,
-  A/D, Space/Backspace, or a horizontal trackpad gesture; press `Esc` to close it.
+- Cull in fullscreen using the **More** menu, context menu, or keyboard shortcuts and navigate with
+  Left/Right, A/D, Space/Backspace, the centered decision-colored filmstrip, or a horizontal
+  trackpad gesture; press `Esc` to close it. The filmstrip loads thumbnails lazily, keeps the
+  current photo centered, and shows its exact position in the visible sequence.
 - Mark selected photographs using the inspector, context menus, or keyboard shortcuts.
 - Export kept and best photographs to a user-selected destination.
 - Resume with the same projects and decisions after restarting.
@@ -65,8 +68,8 @@ PhotoChoose is a private, local-first desktop application for professional photo
 
 Manual decisions are protected: after you explicitly classify a photograph, subsequent analysis runs update its metrics and reasons but do not overwrite your choice.
 
-Each project has a visible **Safe**, **Balanced**, or **Strict** analysis profile. Safe is
-the conservative default. Changing the profile marks existing results as stale but does not
+Each project has a **Safe**, **Balanced**, or **Strict** analysis profile in **Settings**.
+Safe is the conservative default. Changing the profile marks existing results as stale but does not
 silently reclassify anything; click **Analyze and separate** when you are ready to apply the
 new profile. Every result stores its profile and analysis version for later inspection.
 Manual decision and Best changes are recorded only in the local SQLite database as private
@@ -79,7 +82,7 @@ not modify thresholds automatically. Small local tests validate the report machi
 meaningful threshold tuning and performance validation require representative large shoots on
 the target machine.
 
-The top panel also sets **Max Best/group** from 1–5. PhotoChoose reuses stored group rankings,
+**Settings** also sets **Best per group** from 1–5. PhotoChoose reuses stored group rankings,
 so changing this value does not rerun image analysis. Automatic selections favor the highest
 scores while skipping near-identical perceptual hashes; the limit is therefore a maximum, not
 a promise to fill a group with redundant frames. Explicit manual Best choices are always
@@ -104,6 +107,16 @@ Object class names are confidence-qualified model guesses, not authoritative met
 wrong class name can still surround the correct subject and provide a useful regional-focus
 measurement. PhotoChoose therefore keeps class names out of the normal overlay and exposes
 them as `Likely …` details in the photograph tooltip.
+
+## Interface direction
+
+PhotoChoose uses a restrained dark studio interface built from three stable zones: library,
+photographic canvas, and contextual inspector. These zones form one continuous graphite workspace
+separated by thin structural dividers rather than floating cards. Native system typography,
+restrained spacing, and one blue primary action replace decorative labels and a wall of equally
+weighted buttons. It borrows the working rhythm of professional creative software without copying
+another product's panels or iconography. Qt's Fusion base and the shared theme keep the hierarchy
+consistent on macOS and Windows; platform scaling still requires review on the target machine.
 
 ## Local subject models
 

@@ -3,27 +3,47 @@ from __future__ import annotations
 import time
 from typing import List, Optional, Sequence
 
-from PySide6.QtCore import QEvent, QPoint, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import (
+    QEvent,
+    QItemSelectionModel,
+    QModelIndex,
+    QPoint,
+    QRect,
+    QSize,
+    Qt,
+    QTimer,
+    Signal,
+    Slot,
+)
 from PySide6.QtGui import (
+    QColor,
     QContextMenuEvent,
     QImage,
     QImageReader,
     QKeyEvent,
     QMouseEvent,
+    QPainter,
+    QPen,
     QPixmap,
     QResizeEvent,
+    QShortcut,
     QShowEvent,
     QWheelEvent,
 )
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QDialog,
     QGestureEvent,
     QHBoxLayout,
     QLabel,
+    QListView,
     QMenu,
     QPushButton,
     QSizePolicy,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QSwipeGesture,
     QToolButton,
     QVBoxLayout,
@@ -33,6 +53,93 @@ from PySide6.QtWidgets import (
 from photochoose.analysis_overlay import render_analysis_overlay
 from photochoose.database import PhotoDatabase
 from photochoose.models import Decision, Photo, PhotoView
+from photochoose.thumbnail_model import PhotoListModel
+
+
+class FullscreenCarouselModel(PhotoListModel):
+    """Photo model with blank edge slots so every active frame can be centered."""
+
+    PaddingRole = Qt.UserRole + 40
+    EDGE_SLOTS = 6
+
+    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+        if parent.isValid() or not self.photos:
+            return 0
+        return len(self.photos) + self.EDGE_SLOTS * 2
+
+    def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
+        photo_row = self.photo_row(index)
+        if photo_row is None:
+            return role == self.PaddingRole
+        if role == self.PaddingRole:
+            return False
+        return super().data(self.createIndex(photo_row, 0), role)
+
+    def photo_row(self, index: QModelIndex) -> Optional[int]:
+        if not index.isValid():
+            return None
+        photo_row = index.row() - self.EDGE_SLOTS
+        return photo_row if 0 <= photo_row < len(self.photos) else None
+
+    def index_for_photo_row(self, photo_row: int) -> QModelIndex:
+        return self.index(photo_row + self.EDGE_SLOTS, 0)
+
+    def _model_row_for_photo_row(self, row: int) -> int:
+        return row + self.EDGE_SLOTS
+
+
+class FullscreenCarouselDelegate(QStyledItemDelegate):
+    """Compact filmstrip tile with decision color and an explicit active marker."""
+
+    ITEM_SIZE = QSize(118, 82)
+    DECISION_COLORS = {
+        Decision.UNREVIEWED.value: QColor("#555860"),
+        Decision.KEEP.value: QColor("#4f9c71"),
+        Decision.REVIEW.value: QColor("#c4974d"),
+        Decision.REJECT.value: QColor("#bd5b61"),
+    }
+
+    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
+        return self.ITEM_SIZE
+
+    def paint(
+        self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex
+    ) -> None:
+        if index.data(FullscreenCarouselModel.PaddingRole):
+            return
+        painter.save()
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
+        tile = option.rect.adjusted(5, 7, -5, -7)
+        image_box = tile.adjusted(3, 3, -3, -3)
+        painter.fillRect(tile, QColor("#111214"))
+
+        pixmap = index.data(Qt.DecorationRole)
+        if pixmap is not None and not pixmap.isNull():
+            scaled = pixmap.scaled(
+                image_box.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+            )
+            x = image_box.left() + (image_box.width() - scaled.width()) // 2
+            y = image_box.top() + (image_box.height() - scaled.height()) // 2
+            painter.drawPixmap(x, y, scaled)
+
+        decision = index.data(PhotoListModel.DecisionRole)
+        color = self.DECISION_COLORS.get(decision, self.DECISION_COLORS["unreviewed"])
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(color, 2))
+        painter.drawRect(tile.adjusted(1, 1, -1, -1))
+
+        if index.data(PhotoListModel.BestRole):
+            marker = QRect(tile.right() - 18, tile.top() + 2, 16, 15)
+            painter.fillRect(marker, QColor("#cda552"))
+            painter.setPen(QColor("#151619"))
+            painter.drawText(marker, Qt.AlignCenter, "B")
+
+        if option.state & QStyle.State_Selected:
+            painter.setPen(QPen(QColor("#eef3fa"), 2))
+            painter.drawRect(tile.adjusted(-2, -2, 2, 2))
+            active_marker = QRect(option.rect.center().x() - 12, option.rect.top() + 1, 24, 3)
+            painter.fillRect(active_marker, QColor("#6d9fe3"))
+        painter.restore()
 
 
 class FullscreenPhotoDialog(QDialog):
@@ -55,58 +162,54 @@ class FullscreenPhotoDialog(QDialog):
         self._current_image = QImage()
         self.overlay_enabled = False
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
-        self.setStyleSheet("background: #101216; color: white;")
+        self.setObjectName("fullscreenSurface")
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
         self.grabGesture(Qt.SwipeGesture)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(16, 12, 16, 10)
+        layout.setSpacing(9)
 
         toolbar = QHBoxLayout()
         self.menu_button = QToolButton()
-        self.menu_button.setText("Menu")
+        self.menu_button.setText("More")
+        self.menu_button.setProperty("kind", "quiet")
+        self.menu_button.setToolTip("Photo and view menu")
         self.menu_button.clicked.connect(self._show_toolbar_menu)
         toolbar.addWidget(self.menu_button)
-        self.previous_button = QPushButton("← Previous")
+        self.previous_button = QPushButton("←")
+        self.previous_button.setProperty("kind", "quiet")
+        self.previous_button.setToolTip("Previous photo")
         self.previous_button.clicked.connect(self.previous_photo)
         toolbar.addWidget(self.previous_button)
         self.title_label = QLabel()
-        self.title_label.setStyleSheet("font-weight: 600; padding: 0 10px;")
-        toolbar.addWidget(self.title_label, 1)
-        self.keep_button = self._action_button(
-            "Keep  K", lambda: self._set_decision(Decision.KEEP)
-        )
-        self.review_button = self._action_button(
-            "Review  R", lambda: self._set_decision(Decision.REVIEW)
-        )
-        self.reject_button = self._action_button(
-            "Reject  X", lambda: self._set_decision(Decision.REJECT)
-        )
-        self.clear_button = self._action_button(
-            "Clear  U", lambda: self._set_decision(Decision.UNREVIEWED)
-        )
-        self.best_button = self._action_button("Toggle Best  B", self._toggle_best)
-        self.overlay_button = self._action_button(
-            "Analysis  O", self._toggle_analysis_overlay
-        )
-        self.overlay_button.setCheckable(True)
-        self.next_button = QPushButton("Next →")
+        self.title_label.setObjectName("panelTitle")
+        self.decision_badge = QLabel("Unreviewed")
+        self.decision_badge.setObjectName("decisionBadge")
+        self.decision_badge.setAlignment(Qt.AlignCenter)
+        title_area = QWidget()
+        title_layout = QHBoxLayout(title_area)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(8)
+        title_layout.addStretch(1)
+        title_layout.addWidget(self.title_label)
+        title_layout.addWidget(self.decision_badge)
+        title_layout.addStretch(1)
+        toolbar.addWidget(title_area, 1)
+        self.next_button = QPushButton("→")
+        self.next_button.setProperty("kind", "quiet")
+        self.next_button.setToolTip("Next photo")
         self.next_button.clicked.connect(self.next_photo)
-        for button in (
-            self.keep_button,
-            self.review_button,
-            self.reject_button,
-            self.clear_button,
-            self.best_button,
-            self.overlay_button,
-            self.next_button,
-        ):
-            toolbar.addWidget(button)
+        toolbar.addWidget(self.next_button)
+        close_button = QPushButton("Close")
+        close_button.setProperty("kind", "quiet")
+        close_button.clicked.connect(self.close)
+        toolbar.addWidget(close_button)
         layout.addLayout(toolbar)
 
         self.image_label = QLabel()
+        self.image_label.setObjectName("fullscreenCanvas")
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setMinimumSize(1, 1)
         self.image_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
@@ -116,8 +219,49 @@ class FullscreenPhotoDialog(QDialog):
 
         self.footer_label = QLabel()
         self.footer_label.setAlignment(Qt.AlignCenter)
-        self.footer_label.setStyleSheet("padding: 5px; color: #c8ccd2;")
+        self.footer_label.setObjectName("mutedLabel")
         layout.addWidget(self.footer_label)
+
+        filmstrip = QWidget()
+        filmstrip.setObjectName("fullscreenFilmstrip")
+        filmstrip_layout = QVBoxLayout(filmstrip)
+        filmstrip_layout.setContentsMargins(0, 4, 0, 0)
+        filmstrip_layout.setSpacing(3)
+        self.carousel_position_label = QLabel()
+        self.carousel_position_label.setObjectName("carouselPosition")
+        self.carousel_position_label.setAlignment(Qt.AlignCenter)
+        filmstrip_layout.addWidget(self.carousel_position_label)
+
+        self.carousel_model = FullscreenCarouselModel(database, self)
+        self.carousel_model.set_photos(self.photos)
+        self.carousel = QListView()
+        self.carousel.setObjectName("fullscreenCarousel")
+        self.carousel.setModel(self.carousel_model)
+        self.carousel.setItemDelegate(FullscreenCarouselDelegate(self.carousel))
+        self.carousel.setViewMode(QListView.IconMode)
+        self.carousel.setFlow(QListView.LeftToRight)
+        self.carousel.setWrapping(False)
+        self.carousel.setResizeMode(QListView.Fixed)
+        self.carousel.setMovement(QListView.Static)
+        self.carousel.setSelectionMode(QListView.SingleSelection)
+        self.carousel.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.carousel.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.carousel.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.carousel.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.carousel.setUniformItemSizes(True)
+        self.carousel.setSpacing(1)
+        self.carousel.setFixedHeight(86)
+        self.carousel.setFocusPolicy(Qt.NoFocus)
+        self.carousel.clicked.connect(self._carousel_clicked)
+        filmstrip_layout.addWidget(self.carousel)
+        layout.addWidget(filmstrip)
+
+        self.previous_shortcut = QShortcut(Qt.Key_Left, self)
+        self.previous_shortcut.setContext(Qt.WindowShortcut)
+        self.previous_shortcut.activated.connect(self.previous_photo)
+        self.next_shortcut = QShortcut(Qt.Key_Right, self)
+        self.next_shortcut.setContext(Qt.WindowShortcut)
+        self.next_shortcut.activated.connect(self.next_photo)
         self._show_current_photo()
 
     @property
@@ -126,37 +270,41 @@ class FullscreenPhotoDialog(QDialog):
             return None
         return self.photos[self.current_index]
 
-    @staticmethod
-    def _action_button(text: str, handler) -> QPushButton:
-        button = QPushButton(text)
-        button.clicked.connect(handler)
-        return button
-
     def _show_current_photo(self) -> None:
         photo = self.current_photo
         if photo is None:
             self.setWindowTitle("PhotoChoose")
             self.title_label.setText("No photo")
+            self._update_decision_badge(None)
             self.footer_label.setText("Esc to close")
             self.image_label.setText("No photograph to display")
+            self.carousel_position_label.setText("No photos")
             self._update_controls()
             return
         self.setWindowTitle(photo.filename)
-        self.title_label.setText(
-            "{0}    ·    {1}{2}".format(
-                photo.filename,
-                photo.decision.value.title(),
-                "    ·    Best" if photo.is_best else "",
-            )
-        )
+        self.title_label.setText(photo.filename)
+        self._update_decision_badge(photo)
         self.footer_label.setText(
-            "{0} / {1}    ·    ← → or horizontal gesture to navigate    ·    "
-            "K Keep · R Review · X Reject · B Best · O analysis · Esc close".format(
-                self.current_index + 1, len(self.photos)
-            )
+            "← → navigate   ·   K Keep   R Review   X Reject   "
+            "B Best   O evidence   Esc close"
         )
         self._load_image(photo.display_path)
         self._update_controls()
+        self._sync_carousel()
+
+    def _update_decision_badge(self, photo: Optional[Photo]) -> None:
+        if photo is None:
+            state = "unreviewed"
+            text = "Unreviewed"
+        else:
+            state = photo.decision.value
+            text = photo.decision.value.title()
+            if photo.is_best:
+                text += " · Best"
+        self.decision_badge.setText(text)
+        self.decision_badge.setProperty("state", state)
+        self.decision_badge.style().unpolish(self.decision_badge)
+        self.decision_badge.style().polish(self.decision_badge)
 
     def _load_image(self, image_path: str) -> None:
         self.image_label.clear()
@@ -201,20 +349,12 @@ class FullscreenPhotoDialog(QDialog):
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
         QTimer.singleShot(0, self._scale_current_image)
+        QTimer.singleShot(0, self._center_carousel_current)
 
     def _update_controls(self) -> None:
         has_photo = self.current_photo is not None
         self.previous_button.setEnabled(has_photo and self.current_index > 0)
         self.next_button.setEnabled(has_photo and self.current_index < len(self.photos) - 1)
-        for button in (
-            self.keep_button,
-            self.review_button,
-            self.reject_button,
-            self.clear_button,
-            self.best_button,
-            self.overlay_button,
-        ):
-            button.setEnabled(has_photo)
 
     @Slot()
     def previous_photo(self) -> None:
@@ -230,6 +370,34 @@ class FullscreenPhotoDialog(QDialog):
             self.current_index = target
             self._show_current_photo()
 
+    @Slot(QModelIndex)
+    def _carousel_clicked(self, index: QModelIndex) -> None:
+        photo_row = self.carousel_model.photo_row(index)
+        if photo_row is None:
+            self._sync_carousel()
+            return
+        if photo_row == self.current_index:
+            return
+        self.current_index = photo_row
+        self._show_current_photo()
+
+    def _sync_carousel(self) -> None:
+        if not self.photos:
+            return
+        index = self.carousel_model.index_for_photo_row(self.current_index)
+        self.carousel.setCurrentIndex(index)
+        self.carousel.selectionModel().select(index, QItemSelectionModel.ClearAndSelect)
+        self.carousel_position_label.setText(
+            "Current photo  {0} of {1}".format(self.current_index + 1, len(self.photos))
+        )
+        QTimer.singleShot(0, self._center_carousel_current)
+
+    def _center_carousel_current(self) -> None:
+        if not self.photos:
+            return
+        index = self.carousel_model.index_for_photo_row(self.current_index)
+        self.carousel.scrollTo(index, QAbstractItemView.PositionAtCenter)
+
     def _set_decision(self, decision: Decision) -> None:
         photo = self.current_photo
         if photo is None:
@@ -244,11 +412,6 @@ class FullscreenPhotoDialog(QDialog):
         self.database.toggle_best([photo.id])
         self._reload_current_photo()
 
-    @Slot()
-    def _toggle_analysis_overlay(self) -> None:
-        self.overlay_enabled = self.overlay_button.isChecked()
-        self._scale_current_image()
-
     def _reload_current_photo(self) -> None:
         photo = self.current_photo
         if photo is None:
@@ -259,6 +422,9 @@ class FullscreenPhotoDialog(QDialog):
         }
         if photo.id in refreshed:
             self.photos[self.current_index] = refreshed[photo.id]
+            self.carousel_model.update_photo(
+                self.current_index, refreshed[photo.id]
+            )
         self.photosChanged.emit()
         self._show_current_photo()
 
@@ -297,9 +463,6 @@ class FullscreenPhotoDialog(QDialog):
     @Slot(bool)
     def _set_analysis_overlay(self, enabled: bool) -> None:
         self.overlay_enabled = enabled
-        self.overlay_button.blockSignals(True)
-        self.overlay_button.setChecked(enabled)
-        self.overlay_button.blockSignals(False)
         self._scale_current_image()
 
     @Slot()
@@ -351,10 +514,10 @@ class FullscreenPhotoDialog(QDialog):
         if key == Qt.Key_Escape:
             self.close()
             return
-        if key in (Qt.Key_Right, Qt.Key_D, Qt.Key_Space):
+        if key == Qt.Key_Space:
             self.next_photo()
             return
-        if key in (Qt.Key_Left, Qt.Key_A, Qt.Key_Backspace):
+        if key == Qt.Key_Backspace:
             self.previous_photo()
             return
         if key == Qt.Key_K:
@@ -373,7 +536,7 @@ class FullscreenPhotoDialog(QDialog):
             self._toggle_best()
             return
         if key == Qt.Key_O:
-            self.overlay_button.setChecked(not self.overlay_button.isChecked())
+            self._set_analysis_overlay(not self.overlay_enabled)
             return
         super().keyPressEvent(event)
 

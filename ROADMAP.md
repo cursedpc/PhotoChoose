@@ -311,13 +311,29 @@ evidence rather than closed-eye claims. Older analyses are marked stale under th
 without changing decisions. The next implementation slice can prepare Windows/OpenVINO validation
 without claiming corpus calibration.
 
+The desktop interface is organized as a modern three-zone studio workspace: a library
+rail, a distraction-free photographic canvas, and a contextual inspector. Infrequent project
+operations and scoring settings live in menus, while Analyze remains the single prominent project
+action. A continuous graphite visual system uses native typography and structural dividers instead
+of floating cards or macOS-only effects, so the same hierarchy can ship on Windows later.
+
+### Completed design task — preserve selection after classification
+
+**UI-01:** changing a selected grid photo to Keep, Review, Reject, Unreviewed, or Best now
+preserves its selection, the active photo, grid keyboard focus, and the viewport while refreshing
+the saved classification and Inspector state.
+
+If a decision removes the active photo from the current filtered view, the nearest surviving photo
+is selected instead of leaving the workflow without focus. GUI regression coverage exercises
+single selection, multi-selection, All, and decision-filtered views.
+
 ## Current implementation status
 
 The working prototype now exceeds the first slice: it scans and analyzes in background
 workers, persists protected manual overrides, performs baseline technical checks, uses
 local face-mesh eye state plus face/eye-focus signals, groups perceptually similar frames, assigns
 automatic Best choices inside groups, and copies Keep/Best selections non-destructively.
-Project and photo context menus, an expandable analysis inspector, and a navigable
+Project and photo context menus, a contextual right-side analysis inspector, and a navigable
 fullscreen culling surface are also implemented. Scanning now stores core EXIF capture and
 camera settings; capture time and visual similarity drive burst groups, and a two-up view
 provides synchronized zoom/pan and per-frame culling. A conservative relative rule rejects

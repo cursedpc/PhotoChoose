@@ -190,11 +190,32 @@ class PhotoListModel(QAbstractListModel):
         return None
 
     def refresh(self, project_id: int, view: PhotoView) -> None:
+        self.set_photos(self.database.list_photos(project_id, view))
+
+    def set_photos(self, photos: List[Photo]) -> None:
         self.beginResetModel()
-        self.photos = self.database.list_photos(project_id, view)
+        self.photos = list(photos)
         self._rows_by_id = {photo.id: row for row, photo in enumerate(self.photos)}
         self._in_flight.clear()
         self.endResetModel()
+
+    def update_photo(self, row: int, photo: Photo) -> None:
+        if not 0 <= row < len(self.photos):
+            return
+        previous = self.photos[row]
+        self.photos[row] = photo
+        if previous.id != photo.id:
+            self._rows_by_id.pop(previous.id, None)
+            self._rows_by_id[photo.id] = row
+        index = self.index(self._model_row_for_photo_row(row), 0)
+        self.dataChanged.emit(
+            index,
+            index,
+            [Qt.DisplayRole, self.DecisionRole, self.BestRole, self.AnalysisEvidenceRole],
+        )
+
+    def _model_row_for_photo_row(self, row: int) -> int:
+        return row
 
     def clear(self) -> None:
         self.beginResetModel()
@@ -205,6 +226,10 @@ class PhotoListModel(QAbstractListModel):
 
     def photo_ids(self, indexes) -> List[int]:
         return [self.photos[index.row()].id for index in indexes if index.isValid()]
+
+    def index_for_photo_id(self, photo_id: Optional[int]) -> QModelIndex:
+        row = self._rows_by_id.get(photo_id)
+        return QModelIndex() if row is None else self.index(self._model_row_for_photo_row(row), 0)
 
     def selected_photos(self, indexes) -> List[Photo]:
         return [self.photos[index.row()] for index in indexes if index.isValid()]
@@ -228,5 +253,5 @@ class PhotoListModel(QAbstractListModel):
         self._cache.move_to_end(photo_id)
         while len(self._cache) > MAX_MEMORY_THUMBNAILS:
             self._cache.popitem(last=False)
-        index = self.index(row, 0)
+        index = self.index(self._model_row_for_photo_row(row), 0)
         self.dataChanged.emit(index, index, [Qt.DecorationRole])

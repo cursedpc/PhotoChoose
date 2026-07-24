@@ -10,6 +10,7 @@ from PySide6.QtCore import (
     QRunnable,
     Qt,
     QThreadPool,
+    QTimer,
     Signal,
     Slot,
 )
@@ -29,9 +30,12 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSpinBox,
     QSplitter,
+    QStackedLayout,
     QTabBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from photochoose.analysis_profiles import ANALYSIS_PROFILES, ANALYSIS_VERSION
@@ -153,31 +157,78 @@ class MainWindow(QMainWindow):
         self.calibration_dialog: Optional[CalibrationReportDialog] = None
 
         self.setWindowTitle("PhotoChoose")
-        self.resize(1280, 820)
+        self.setObjectName("mainWindow")
+        self.setMinimumSize(1080, 700)
+        self.resize(1440, 900)
+        self._create_project_actions()
         self._build_ui()
+        self._build_menus()
         self._install_shortcuts()
         self._load_projects()
 
+    def _create_project_actions(self) -> None:
+        self.add_project_action = QAction("Add shoot folder…", self)
+        self.add_project_action.triggered.connect(self._choose_project_folder)
+        self.rescan_button = QAction("Rescan folder", self)
+        self.rescan_button.triggered.connect(self._rescan_current_project)
+        self.analyze_action = QAction("Analyze and separate", self)
+        self.analyze_action.triggered.connect(self._analyze_current_project)
+        self.calibration_button = QAction("Calibration report…", self)
+        self.calibration_button.triggered.connect(self._open_calibration_report)
+        self.export_button = QAction("Export Keep + Best…", self)
+        self.export_button.triggered.connect(self._choose_export_folder)
+        self.close_project_button = QAction("Close project", self)
+        self.close_project_button.triggered.connect(self._close_current_project)
+        for action in (
+            self.rescan_button,
+            self.analyze_action,
+            self.calibration_button,
+            self.export_button,
+            self.close_project_button,
+        ):
+            action.setEnabled(False)
+
     def _build_ui(self) -> None:
+        root = QWidget()
+        root_layout = QHBoxLayout(root)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
         splitter = QSplitter(Qt.Horizontal)
+        splitter.setHandleWidth(1)
         splitter.addWidget(self._build_project_sidebar())
         splitter.addWidget(self._build_photo_workspace())
-        splitter.setSizes([260, 1020])
+        self.inspector = self._build_selection_inspector()
+        splitter.addWidget(self.inspector)
+        splitter.setSizes([220, 900, 310])
         splitter.setStretchFactor(1, 1)
-        self.setCentralWidget(splitter)
+        splitter.setCollapsible(0, False)
+        splitter.setCollapsible(1, False)
+        splitter.setCollapsible(2, False)
+        root_layout.addWidget(splitter)
+        self.setCentralWidget(root)
         self.statusBar().showMessage("Add a shoot folder to begin")
 
     def _build_project_sidebar(self) -> QWidget:
         sidebar = QFrame()
-        sidebar.setMinimumWidth(220)
+        sidebar.setObjectName("libraryRail")
+        sidebar.setMinimumWidth(190)
+        sidebar.setMaximumWidth(270)
         layout = QVBoxLayout(sidebar)
+        layout.setContentsMargins(14, 16, 14, 14)
+        layout.setSpacing(10)
 
-        title = QLabel("Projects")
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        brand = QLabel("PhotoChoose")
+        brand.setObjectName("brandMark")
+        layout.addWidget(brand)
+        layout.addSpacing(12)
+
+        title = QLabel("Folders")
+        title.setObjectName("eyebrow")
         layout.addWidget(title)
 
         self.project_list = QListWidget()
-        self.project_list.setAlternatingRowColors(True)
+        self.project_list.setObjectName("projectList")
+        self.project_list.setSpacing(2)
         self.project_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.project_list.customContextMenuRequested.connect(
             self._show_project_context_menu
@@ -185,58 +236,144 @@ class MainWindow(QMainWindow):
         self.project_list.currentItemChanged.connect(self._project_changed)
         layout.addWidget(self.project_list, 1)
 
-        add_button = QPushButton("Add shoot folder…")
+        layout.addSpacing(6)
+        add_button = QPushButton("Add shoot…")
+        add_button.setObjectName("addShootButton")
+        add_button.setProperty("kind", "quiet")
+        add_button.setToolTip("Add a folder as a new private photo project")
         add_button.clicked.connect(self._choose_project_folder)
         layout.addWidget(add_button)
-
-        self.rescan_button = QPushButton("Rescan selected folder")
-        self.rescan_button.clicked.connect(self._rescan_current_project)
-        self.rescan_button.setEnabled(False)
-        layout.addWidget(self.rescan_button)
-
-        self.analyze_button = QPushButton("Analyze and separate")
-        self.analyze_button.setToolTip(
-            "Refresh metadata, then classify this folder entirely on this computer"
-        )
-        self.analyze_button.clicked.connect(self._analyze_current_project)
-        self.analyze_button.setEnabled(False)
-        layout.addWidget(self.analyze_button)
-
-        self.calibration_button = QPushButton("Calibration report…")
-        self.calibration_button.setToolTip(
-            "Summarize local manual corrections without changing profile thresholds"
-        )
-        self.calibration_button.clicked.connect(self._open_calibration_report)
-        self.calibration_button.setEnabled(False)
-        layout.addWidget(self.calibration_button)
-
-        self.export_button = QPushButton("Export Keep + Best…")
-        self.export_button.setToolTip(
-            "Copy kept and best photographs into Keep and Best export folders"
-        )
-        self.export_button.clicked.connect(self._choose_export_folder)
-        self.export_button.setEnabled(False)
-        layout.addWidget(self.export_button)
-
-        self.close_project_button = QPushButton("Close selected folder")
-        self.close_project_button.setToolTip(
-            "Hide this project while preserving its analysis and decisions"
-        )
-        self.close_project_button.clicked.connect(self._close_current_project)
-        self.close_project_button.setEnabled(False)
-        layout.addWidget(self.close_project_button)
         return sidebar
 
     def _build_photo_workspace(self) -> QWidget:
-        workspace = QWidget()
+        workspace = QFrame()
+        workspace.setObjectName("workspaceSurface")
         layout = QVBoxLayout(workspace)
+        layout.setContentsMargins(16, 12, 16, 0)
+        layout.setSpacing(10)
 
+        header = QFrame()
+        header.setObjectName("workspaceHeader")
+        header_layout = QVBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(3)
         title_row = QHBoxLayout()
+        title_row.setSpacing(8)
+        title_block = QVBoxLayout()
+        title_block.setSpacing(2)
         self.project_title = QLabel("No project selected")
-        self.project_title.setStyleSheet("font-size: 20px; font-weight: 600;")
-        title_row.addWidget(self.project_title)
-        title_row.addStretch(1)
-        title_row.addWidget(QLabel("Analysis profile:"))
+        self.project_title.setObjectName("projectTitle")
+        title_block.addWidget(self.project_title)
+        self.project_path = QLabel("Select a project from the library")
+        self.project_path.setObjectName("projectPath")
+        self.project_path.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        title_block.addWidget(self.project_path)
+        title_row.addLayout(title_block, 1)
+
+        self.analyze_button = QPushButton("Analyze")
+        self.analyze_button.setProperty("kind", "primary")
+        self.analyze_button.setToolTip(
+            "Refresh metadata, then classify this project entirely on this computer"
+        )
+        self.analyze_button.clicked.connect(self._analyze_current_project)
+        self.analyze_button.setEnabled(False)
+        title_row.addWidget(self.analyze_button)
+
+        self.project_options_button = QToolButton()
+        self.project_options_button.setText("Settings")
+        self.project_options_button.setPopupMode(QToolButton.InstantPopup)
+        self.project_options_button.setEnabled(False)
+        self.project_options_menu = QMenu(self.project_options_button)
+        self.project_options_menu.addAction(self._build_project_settings_action())
+        self.project_options_button.setMenu(self.project_options_menu)
+        title_row.addWidget(self.project_options_button)
+        header_layout.addLayout(title_row)
+
+        meta_row = QHBoxLayout()
+        meta_row.setContentsMargins(0, 5, 0, 0)
+        self.analysis_profile_status = QLabel("Safe profile · ready")
+        self.analysis_profile_status.setObjectName("mutedLabel")
+        meta_row.addWidget(self.analysis_profile_status)
+        meta_row.addStretch(1)
+        header_layout.addLayout(meta_row)
+        layout.addWidget(header)
+
+        navigation = QFrame()
+        navigation.setObjectName("workspaceNavigation")
+        navigation_layout = QHBoxLayout(navigation)
+        navigation_layout.setContentsMargins(0, 6, 0, 0)
+        navigation_layout.setSpacing(10)
+        self.view_tabs = QTabBar()
+        self.view_tabs.setExpanding(False)
+        self.view_tabs.setDocumentMode(True)
+        self.view_tabs.setDrawBase(False)
+        for view in VIEWS:
+            self.view_tabs.addTab(view.value.title())
+        self.view_tabs.currentChanged.connect(self._view_changed)
+        navigation_layout.addWidget(self.view_tabs)
+        navigation_layout.addStretch(1)
+        self.count_label = QLabel("0 photos")
+        self.count_label.setObjectName("mutedLabel")
+        navigation_layout.addWidget(self.count_label)
+        layout.addWidget(navigation)
+
+        self.photo_grid = QListView()
+        self.photo_grid.setObjectName("photoGrid")
+        self.photo_grid.setModel(self.photo_model)
+        self.photo_grid.setItemDelegate(PhotoDelegate(self.photo_grid))
+        self.photo_grid.setViewMode(QListView.IconMode)
+        self.photo_grid.setResizeMode(QListView.Adjust)
+        self.photo_grid.setMovement(QListView.Static)
+        self.photo_grid.setSelectionMode(QListView.ExtendedSelection)
+        self.photo_grid.setUniformItemSizes(True)
+        self.photo_grid.setWordWrap(True)
+        self.photo_grid.setIconSize(THUMBNAIL_SIZE)
+        self.photo_grid.setGridSize(GRID_SIZE)
+        self.photo_grid.setSpacing(7)
+        self.photo_grid.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.photo_grid.customContextMenuRequested.connect(self._show_photo_context_menu)
+        self.photo_grid.selectionModel().selectionChanged.connect(self._selection_changed)
+        self.photo_grid.doubleClicked.connect(self._open_fullscreen)
+
+        canvas = QWidget()
+        self.canvas_stack = QStackedLayout(canvas)
+        self.canvas_stack.setContentsMargins(0, 0, 0, 0)
+        empty_state = QFrame()
+        empty_state.setObjectName("emptyState")
+        empty_layout = QVBoxLayout(empty_state)
+        empty_layout.setContentsMargins(30, 30, 30, 30)
+        empty_layout.addStretch(1)
+        self.empty_title = QLabel("Your workspace is ready")
+        self.empty_title.setObjectName("projectTitle")
+        self.empty_title.setAlignment(Qt.AlignCenter)
+        empty_layout.addWidget(self.empty_title)
+        self.empty_hint = QLabel(
+            "Add a shoot or choose one from the library. Originals always stay untouched."
+        )
+        self.empty_hint.setObjectName("mutedLabel")
+        self.empty_hint.setAlignment(Qt.AlignCenter)
+        self.empty_hint.setWordWrap(True)
+        empty_layout.addWidget(self.empty_hint)
+        empty_layout.addStretch(1)
+        self.canvas_stack.addWidget(empty_state)
+        self.canvas_stack.addWidget(self.photo_grid)
+        self.canvas_stack.setCurrentIndex(0)
+        layout.addWidget(canvas, 1)
+        return workspace
+
+    def _build_project_settings_action(self) -> QWidgetAction:
+        settings = QWidget()
+        settings.setMinimumWidth(270)
+        layout = QVBoxLayout(settings)
+        layout.setContentsMargins(12, 9, 12, 10)
+        layout.setSpacing(7)
+
+        label = QLabel("Project settings")
+        label.setObjectName("eyebrow")
+        layout.addWidget(label)
+
+        profile_row = QHBoxLayout()
+        profile_row.addWidget(QLabel("Analysis profile"))
         self.analysis_profile_combo = QComboBox()
         for profile in ANALYSIS_PROFILES:
             self.analysis_profile_combo.addItem(profile.label, profile.key)
@@ -249,12 +386,12 @@ class MainWindow(QMainWindow):
         self.analysis_profile_combo.currentIndexChanged.connect(
             self._analysis_profile_changed
         )
-        title_row.addWidget(self.analysis_profile_combo)
-        self.analysis_profile_status = QLabel("Safe default")
-        self.analysis_profile_status.setStyleSheet("color: #808792;")
-        title_row.addWidget(self.analysis_profile_status)
-        title_row.addSpacing(12)
-        title_row.addWidget(QLabel("Max Best/group:"))
+        profile_row.addWidget(self.analysis_profile_combo, 1)
+        layout.addLayout(profile_row)
+
+        best_row = QHBoxLayout()
+        best_row.addWidget(QLabel("Best per group"))
+        best_row.addStretch(1)
         self.best_count_spin = QSpinBox()
         self.best_count_spin.setRange(1, 5)
         self.best_count_spin.setValue(1)
@@ -263,68 +400,80 @@ class MainWindow(QMainWindow):
         )
         self.best_count_spin.setEnabled(False)
         self.best_count_spin.valueChanged.connect(self._best_count_changed)
-        title_row.addWidget(self.best_count_spin)
-        layout.addLayout(title_row)
+        best_row.addWidget(self.best_count_spin)
+        layout.addLayout(best_row)
 
-        self.project_path = QLabel("")
-        self.project_path.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.project_path.setStyleSheet("color: #808792;")
-        layout.addWidget(self.project_path)
+        action = QWidgetAction(self)
+        action.setDefaultWidget(settings)
+        return action
 
-        self.view_tabs = QTabBar()
-        self.view_tabs.setExpanding(False)
-        self.view_tabs.setDocumentMode(True)
-        for view in VIEWS:
-            self.view_tabs.addTab(view.value.title())
-        self.view_tabs.currentChanged.connect(self._view_changed)
-        layout.addWidget(self.view_tabs)
-
-        self.inspector = SelectionInspector()
-        self.inspector.keep_button.clicked.connect(
+    def _build_selection_inspector(self) -> SelectionInspector:
+        inspector = SelectionInspector()
+        inspector.setMinimumWidth(275)
+        inspector.setMaximumWidth(380)
+        inspector.keep_button.clicked.connect(
             lambda: self._set_decision(Decision.KEEP)
         )
-        self.inspector.review_button.clicked.connect(
+        inspector.review_button.clicked.connect(
             lambda: self._set_decision(Decision.REVIEW)
         )
-        self.inspector.reject_button.clicked.connect(
+        inspector.reject_button.clicked.connect(
             lambda: self._set_decision(Decision.REJECT)
         )
-        self.inspector.clear_button.clicked.connect(
+        inspector.clear_button.clicked.connect(
             lambda: self._set_decision(Decision.UNREVIEWED)
         )
-        self.inspector.best_button.clicked.connect(self._toggle_best)
-        self.inspector.open_button.clicked.connect(self._open_selected_fullscreen)
-        self.inspector.compare_button.clicked.connect(self._open_selected_comparison)
-        self.inspector.analysis_overlay_button.toggled.connect(
-            self._set_analysis_overlay
-        )
-        self.keep_button = self.inspector.keep_button
-        self.review_button = self.inspector.review_button
-        self.reject_button = self.inspector.reject_button
-        self.clear_button = self.inspector.clear_button
-        self.best_button = self.inspector.best_button
-        self.count_label = self.inspector.visible_count_label
-        layout.addWidget(self.inspector)
-
-        self.photo_grid = QListView()
-        self.photo_grid.setModel(self.photo_model)
-        self.photo_grid.setItemDelegate(PhotoDelegate(self.photo_grid))
-        self.photo_grid.setViewMode(QListView.IconMode)
-        self.photo_grid.setResizeMode(QListView.Adjust)
-        self.photo_grid.setMovement(QListView.Static)
-        self.photo_grid.setSelectionMode(QListView.ExtendedSelection)
-        self.photo_grid.setUniformItemSizes(True)
-        self.photo_grid.setWordWrap(True)
-        self.photo_grid.setIconSize(THUMBNAIL_SIZE)
-        self.photo_grid.setGridSize(GRID_SIZE)
-        self.photo_grid.setSpacing(8)
-        self.photo_grid.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.photo_grid.customContextMenuRequested.connect(self._show_photo_context_menu)
-        self.photo_grid.selectionModel().selectionChanged.connect(self._selection_changed)
-        self.photo_grid.doubleClicked.connect(self._open_fullscreen)
-        layout.addWidget(self.photo_grid, 1)
+        inspector.best_button.clicked.connect(self._toggle_best)
+        inspector.open_button.clicked.connect(self._open_selected_fullscreen)
+        inspector.compare_button.clicked.connect(self._open_selected_comparison)
+        inspector.analysis_overlay_button.toggled.connect(self._set_analysis_overlay)
+        self.keep_button = inspector.keep_button
+        self.review_button = inspector.review_button
+        self.reject_button = inspector.reject_button
+        self.clear_button = inspector.clear_button
+        self.best_button = inspector.best_button
         self._set_action_buttons_enabled(False)
-        return workspace
+        return inspector
+
+    def _build_menus(self) -> None:
+        file_menu = self.menuBar().addMenu("File")
+        file_menu.addAction(self.add_project_action)
+        file_menu.addSeparator()
+        file_menu.addAction(self.export_button)
+        file_menu.addAction(self.close_project_button)
+
+        project_menu = self.menuBar().addMenu("Project")
+        project_menu.addAction(self.analyze_action)
+        project_menu.addAction(self.rescan_button)
+        project_menu.addSeparator()
+        project_menu.addAction(self.calibration_button)
+
+        photo_menu = self.menuBar().addMenu("Photo")
+        for text, handler in (
+            ("Keep    K", lambda: self._set_decision(Decision.KEEP)),
+            ("Review    R", lambda: self._set_decision(Decision.REVIEW)),
+            ("Reject    X", lambda: self._set_decision(Decision.REJECT)),
+            ("Clear decision    U", lambda: self._set_decision(Decision.UNREVIEWED)),
+        ):
+            photo_menu.addAction(text).triggered.connect(handler)
+        photo_menu.addSeparator()
+        photo_menu.addAction("Toggle Best    B").triggered.connect(self._toggle_best)
+        photo_menu.addAction("Open fullscreen").triggered.connect(
+            self._open_selected_fullscreen
+        )
+        photo_menu.addAction("Compare group").triggered.connect(
+            self._open_selected_comparison
+        )
+
+        view_menu = self.menuBar().addMenu("View")
+        for index, view in enumerate(VIEWS):
+            view_menu.addAction(view.value.title()).triggered.connect(
+                lambda _checked=False, selected=index: self.view_tabs.setCurrentIndex(selected)
+            )
+        view_menu.addSeparator()
+        view_menu.addAction("Analysis overlay    O").triggered.connect(
+            self._toggle_analysis_overlay
+        )
 
     def _install_shortcuts(self) -> None:
         shortcuts = [
@@ -397,6 +546,7 @@ class MainWindow(QMainWindow):
         self.current_project = project
         self.project_title.setText(project.name)
         self.project_path.setText(project.root_path)
+        self.setWindowTitle("{0} · PhotoChoose".format(project.name))
         self._update_analysis_profile_controls()
         self._update_best_count_control()
         self._update_project_action_buttons()
@@ -434,14 +584,25 @@ class MainWindow(QMainWindow):
             self.analysis_profile_combo.setCurrentIndex(index)
         self.analysis_profile_combo.blockSignals(False)
         stale_count = self.database.count_stale_analysis(self.current_project.id)
+        profile_label = self.analysis_profile_combo.currentText() or "Safe"
         if stale_count:
             self.analysis_profile_status.setText(
-                "Reanalysis required · {0} stale".format(stale_count)
+                "{0} profile · {1} photo{2} need reanalysis".format(
+                    profile_label,
+                    stale_count,
+                    "" if stale_count == 1 else "s",
+                )
             )
-            self.analysis_profile_status.setStyleSheet("color: #b26a00; font-weight: 600;")
+            self.analysis_profile_status.setObjectName("statusReview")
         else:
-            self.analysis_profile_status.setText(ANALYSIS_VERSION)
-            self.analysis_profile_status.setStyleSheet("color: #808792;")
+            self.analysis_profile_status.setText(
+                "{0} profile · {1} · local processing".format(
+                    profile_label, ANALYSIS_VERSION
+                )
+            )
+            self.analysis_profile_status.setObjectName("mutedLabel")
+        self.analysis_profile_status.style().unpolish(self.analysis_profile_status)
+        self.analysis_profile_status.style().polish(self.analysis_profile_status)
 
     @Slot(int)
     def _best_count_changed(self, count: int) -> None:
@@ -838,32 +999,42 @@ class MainWindow(QMainWindow):
         )
         self.rescan_button.setEnabled(enabled)
         self.analyze_button.setEnabled(enabled)
+        self.analyze_action.setEnabled(enabled)
         self.calibration_button.setEnabled(enabled)
         self.export_button.setEnabled(enabled)
         self.close_project_button.setEnabled(enabled)
+        self.project_options_button.setEnabled(enabled)
         self.analysis_profile_combo.setEnabled(enabled)
         self.best_count_spin.setEnabled(enabled)
 
     def _clear_current_project(self) -> None:
         self.current_project = None
         self.project_title.setText("No project selected")
-        self.project_path.setText("")
+        self.project_path.setText("Select a project from the library")
+        self.setWindowTitle("PhotoChoose")
         self.analysis_profile_combo.setEnabled(False)
         self.best_count_spin.blockSignals(True)
         self.best_count_spin.setValue(1)
         self.best_count_spin.blockSignals(False)
         self.best_count_spin.setEnabled(False)
-        self.analysis_profile_status.setText("Safe default")
-        self.analysis_profile_status.setStyleSheet("color: #808792;")
+        self.analysis_profile_status.setText("Safe profile · ready")
+        self.analysis_profile_status.setObjectName("mutedLabel")
         self.photo_model.clear()
+        self.empty_title.setText("Your workspace is ready")
+        self.empty_hint.setText(
+            "Add a shoot or choose one from the library. Originals always stay untouched."
+        )
+        self.canvas_stack.setCurrentIndex(0)
         self.inspector.set_photos([], 0)
         for index, view in enumerate(VIEWS):
             self.view_tabs.setTabText(index, view.value.title())
         self.rescan_button.setEnabled(False)
         self.analyze_button.setEnabled(False)
+        self.analyze_action.setEnabled(False)
         self.calibration_button.setEnabled(False)
         self.export_button.setEnabled(False)
         self.close_project_button.setEnabled(False)
+        self.project_options_button.setEnabled(False)
 
     def _selected_photo_ids(self):
         indexes = self.photo_grid.selectionModel().selectedIndexes()
@@ -874,22 +1045,126 @@ class MainWindow(QMainWindow):
         if not photo_ids:
             return
         self.database.set_decision(photo_ids, decision)
-        self._refresh_photos()
+        self._refresh_photos(preserve_selection=True, focus_grid=True)
 
     def _toggle_best(self) -> None:
         photo_ids = self._selected_photo_ids()
         if not photo_ids:
             return
         self.database.toggle_best(photo_ids)
-        self._refresh_photos()
+        self._refresh_photos(preserve_selection=True, focus_grid=True)
 
-    def _refresh_photos(self) -> None:
+    def _refresh_photos(
+        self, preserve_selection: bool = False, focus_grid: bool = False
+    ) -> None:
         if self.current_project is None:
             return
+
+        selection_model = self.photo_grid.selectionModel()
+        selected_ids = self._selected_photo_ids() if preserve_selection else []
+        current_index = selection_model.currentIndex()
+        current_id = (
+            current_index.data(self.photo_model.PhotoIdRole)
+            if preserve_selection and current_index.isValid()
+            else None
+        )
+        anchor_row = current_index.row() if current_index.isValid() else -1
+        if anchor_row < 0 and preserve_selection:
+            selected_indexes = selection_model.selectedIndexes()
+            anchor_row = selected_indexes[0].row() if selected_indexes else -1
+        horizontal_scroll = self.photo_grid.horizontalScrollBar().value()
+        vertical_scroll = self.photo_grid.verticalScrollBar().value()
+        project_id = self.current_project.id
+        view = self.current_view
+
         self.photo_model.refresh(self.current_project.id, self.current_view)
-        self.photo_grid.clearSelection()
+        if self.photo_model.rowCount():
+            self.canvas_stack.setCurrentIndex(1)
+        else:
+            self.empty_title.setText("Nothing in this view")
+            self.empty_hint.setText(
+                "Try another filter, or use Project → Rescan if files were added."
+            )
+            self.canvas_stack.setCurrentIndex(0)
+
+        active_index = None
+        if preserve_selection and selected_ids:
+            surviving_indexes = [
+                index
+                for photo_id in selected_ids
+                if (index := self.photo_model.index_for_photo_id(photo_id)).isValid()
+            ]
+            if surviving_indexes:
+                active_index = self.photo_model.index_for_photo_id(current_id)
+                if not active_index.isValid():
+                    active_index = surviving_indexes[0]
+            elif self.photo_model.rowCount():
+                fallback_row = min(max(anchor_row, 0), self.photo_model.rowCount() - 1)
+                active_index = self.photo_model.index(fallback_row, 0)
+                surviving_indexes = [active_index]
+
+            signals_were_blocked = selection_model.blockSignals(True)
+            try:
+                selection_model.clearSelection()
+                for position, index in enumerate(surviving_indexes):
+                    flag = (
+                        QItemSelectionModel.ClearAndSelect
+                        if position == 0
+                        else QItemSelectionModel.Select
+                    )
+                    selection_model.select(index, flag)
+                if active_index is not None and active_index.isValid():
+                    selection_model.setCurrentIndex(
+                        active_index, QItemSelectionModel.NoUpdate
+                    )
+            finally:
+                selection_model.blockSignals(signals_were_blocked)
+        else:
+            self.photo_grid.clearSelection()
+
         self._update_counts()
         self._selection_changed()
+        if focus_grid and active_index is not None and active_index.isValid():
+            self.photo_grid.setFocus(Qt.OtherFocusReason)
+
+        if preserve_selection:
+            active_id = (
+                active_index.data(self.photo_model.PhotoIdRole)
+                if active_index is not None and active_index.isValid()
+                else None
+            )
+            QTimer.singleShot(
+                0,
+                lambda: self._restore_grid_viewport(
+                    project_id,
+                    view,
+                    horizontal_scroll,
+                    vertical_scroll,
+                    active_id,
+                ),
+            )
+
+    def _restore_grid_viewport(
+        self,
+        project_id: int,
+        view: PhotoView,
+        horizontal_scroll: int,
+        vertical_scroll: int,
+        active_photo_id: Optional[int],
+    ) -> None:
+        if (
+            self.current_project is None
+            or self.current_project.id != project_id
+            or self.current_view != view
+        ):
+            return
+        self.photo_grid.horizontalScrollBar().setValue(horizontal_scroll)
+        self.photo_grid.verticalScrollBar().setValue(vertical_scroll)
+        active_index = self.photo_model.index_for_photo_id(active_photo_id)
+        if active_index.isValid() and not self.photo_grid.viewport().rect().intersects(
+            self.photo_grid.visualRect(active_index)
+        ):
+            self.photo_grid.scrollTo(active_index, QListView.EnsureVisible)
 
     def _update_counts(self) -> None:
         if self.current_project is None:
