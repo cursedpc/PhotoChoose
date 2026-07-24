@@ -1,0 +1,126 @@
+name: Windows installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/windows-installer
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUTF8: "1"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Python 3.11 x64
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          architecture: x64
+          cache: pip
+
+      - name: Read application version
+        shell: pwsh
+        run: |
+          $version = python -c "import pathlib,tomllib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version'])"
+          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,packaging]"
+
+      - name: Run tests
+        run: python -m unittest discover -s tests
+
+      - name: Generate Windows icon
+        run: python packaging/windows/make_icon.py
+
+      - name: Build one-folder application
+        run: python -m PyInstaller --noconfirm --clean packaging/windows/photochoose.spec
+
+      - name: Smoke-test portable executable
+        shell: pwsh
+        run: |
+          $env:PHOTOCHOOSE_SMOKE_LOG = Join-Path $env:RUNNER_TEMP "photochoose-portable-smoke.log"
+          $process = Start-Process ".\dist\PhotoChoose\PhotoChoose.exe" -ArgumentList "--smoke-test" -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            if (Test-Path $env:PHOTOCHOOSE_SMOKE_LOG) {
+              Get-Content $env:PHOTOCHOOSE_SMOKE_LOG
+            }
+            throw "Portable PhotoChoose smoke test failed with exit code $($process.ExitCode)"
+          }
+
+      - name: Create portable diagnostic ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          Compress-Archive -Path dist\PhotoChoose -DestinationPath "release\PhotoChoose-portable-$env:APP_VERSION-x64.zip" -CompressionLevel Optimal
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) {
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          & $iscc "/DAppVersion=$env:APP_VERSION" "packaging\windows\photochoose.iss"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Verify installed application and uninstaller
+        shell: pwsh
+        run: |
+          $installer = Get-Item "release\PhotoChoose-Setup-$env:APP_VERSION-x64.exe"
+          $installDir = Join-Path $env:RUNNER_TEMP "PhotoChooseInstall"
+          $install = Start-Process $installer.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=$installDir" -Wait -PassThru
+          if ($install.ExitCode -ne 0) {
+            throw "Installer failed with exit code $($install.ExitCode)"
+          }
+          $env:PHOTOCHOOSE_SMOKE_LOG = Join-Path $env:RUNNER_TEMP "photochoose-installed-smoke.log"
+          $smoke = Start-Process "$installDir\PhotoChoose.exe" -ArgumentList "--smoke-test" -Wait -PassThru
+          if ($smoke.ExitCode -ne 0) {
+            if (Test-Path $env:PHOTOCHOOSE_SMOKE_LOG) {
+              Get-Content $env:PHOTOCHOOSE_SMOKE_LOG
+            }
+            throw "Installed PhotoChoose smoke test failed with exit code $($smoke.ExitCode)"
+          }
+          $uninstall = Start-Process "$installDir\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) {
+            throw "Uninstaller failed with exit code $($uninstall.ExitCode)"
+          }
+
+      - name: Write SHA-256 checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem release\*.exe, release\*.zip | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          } | Out-File release\SHA256SUMS.txt -Encoding ascii
+          Get-Content release\SHA256SUMS.txt
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhotoChoose-Windows-x64-${{ env.APP_VERSION }}
+          path: |
+            release/PhotoChoose-Setup-*.exe
+            release/PhotoChoose-portable-*.zip
+            release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14

@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Optional, Sequence
 
-from PySide6.QtCore import QLibraryInfo, QStandardPaths
+from PySide6.QtCore import QLibraryInfo, QStandardPaths, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -71,6 +71,65 @@ def create_application(
     return app
 
 
+def run_packaging_smoke_test() -> None:
+    """Require the frozen build's bundled models to run on OpenVINO CPU."""
+
+    import numpy as np
+
+    from photochoose.inference_backend import openvino_backend_status
+    from photochoose.object_models import GeneralSubjectAnalyzer
+    from photochoose.vision_models import ModelSubjectAnalyzer
+
+    status = openvino_backend_status()
+    if status["device"] != "CPU":
+        raise RuntimeError("OpenVINO CPU is unavailable: {0}".format(status["error"]))
+
+    image = np.zeros((320, 416, 3), dtype=np.uint8)
+    subject_analyzer = ModelSubjectAnalyzer()
+    subject_result = subject_analyzer.analyze(image)
+    if (
+        subject_result is None
+        or subject_analyzer.face_backend_name != "openvino-cpu"
+        or subject_analyzer.eye_analyzer.backend_name != "openvino-cpu"
+    ):
+        raise RuntimeError("Bundled YuNet or face-mesh OpenVINO inference failed")
+    subject_analyzer.eye_analyzer.analyze(image)
+
+    object_analyzer = GeneralSubjectAnalyzer()
+    object_result = object_analyzer.analyze(image)
+    if (
+        object_analyzer.backend_name != "openvino-cpu"
+        or not object_result.model_name.startswith("nanodet-openvino-cpu")
+    ):
+        raise RuntimeError("Bundled NanoDet OpenVINO inference failed")
+
+
+def _write_smoke_failure() -> None:
+    smoke_log = os.environ.get("PHOTOCHOOSE_SMOKE_LOG")
+    if not smoke_log:
+        return
+    import traceback
+
+    try:
+        Path(smoke_log).write_text(traceback.format_exc(), encoding="utf-8")
+    except OSError:
+        pass
+
+
 def main() -> int:
-    app = create_application()
+    smoke_mode = "--smoke-test" in sys.argv
+    if smoke_mode:
+        try:
+            temporary_directory = Path(
+                QStandardPaths.writableLocation(QStandardPaths.TempLocation)
+            )
+            smoke_database = temporary_directory / "photochoose-packaging-smoke.sqlite3"
+            app = create_application(database_path=smoke_database)
+            run_packaging_smoke_test()
+        except Exception:
+            _write_smoke_failure()
+            return 2
+        QTimer.singleShot(0, app.quit)
+    else:
+        app = create_application()
     return app.exec()
