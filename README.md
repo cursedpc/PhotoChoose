@@ -190,7 +190,7 @@ also emitted as a portable ZIP for target-machine diagnostics.
 
 The build must run on Windows; PyInstaller does not cross-build Windows executables from macOS.
 Version tags and manual workflow runs execute the Windows builder in
-`.github/workflows/windows-installer.yml`. A matching tag such as `v0.1.1` publishes the tested
+`.github/workflows/windows-installer.yml`. A matching tag such as `v0.1.2` publishes the tested
 installer, portable ZIP, and SHA-256 checksums directly to GitHub Releases. Local Windows build
 instructions are in `packaging/windows/README.md`. To upgrade, download and run the newer setup
 file directly: its stable application identity reuses the existing installation and preserves the

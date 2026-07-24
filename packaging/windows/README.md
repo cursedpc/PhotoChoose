@@ -18,10 +18,10 @@ Install Inno Setup, then compile the installer from the repository root:
 
 ```powershell
 & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
-  "/DAppVersion=0.1.1" packaging\windows\photochoose.iss
+  "/DAppVersion=0.1.2" packaging\windows\photochoose.iss
 ```
 
-The installer is written to `release\PhotoChoose-Setup-0.1.1-x64.exe`. It installs under the
+The installer is written to `release\PhotoChoose-Setup-0.1.2-x64.exe`. It installs under the
 current user's Local AppData and does not require elevation. The catalog database remains under
 `%APPDATA%\PhotoChoose\PhotoChoose` and is intentionally not removed by uninstall.
 
