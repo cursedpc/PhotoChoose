@@ -27,5 +27,8 @@ current user's Local AppData and does not require elevation. The catalog databas
 
 The automated workflow additionally installs the generated setup into a temporary directory,
 starts the installed executable in smoke-test mode, uninstalls it, creates a portable ZIP, and
-publishes SHA-256 checksums. Public releases remain unsigned until a trusted signing identity is
+publishes SHA-256 checksums. To create a downloadable GitHub Release, update the application
+version in `pyproject.toml`, commit it to `main`, then push the matching `v<version>` tag. The
+workflow publishes the installer only after every Windows build, test, install, smoke-test, and
+uninstall step succeeds. Public releases remain unsigned until a trusted signing identity is
 configured.

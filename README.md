@@ -186,9 +186,10 @@ PhotoChoose catalog under `%APPDATA%\\PhotoChoose\\PhotoChoose`. The same applic
 also emitted as a portable ZIP for target-machine diagnostics.
 
 The build must run on Windows; PyInstaller does not cross-build Windows executables from macOS.
-Pushes to `feature/windows-installer`, version tags, and manual workflow runs execute the Windows
-builder in `.github/workflows/windows-installer.yml`. Local Windows build instructions are in
-`packaging/windows/README.md`.
+Version tags and manual workflow runs execute the Windows builder in
+`.github/workflows/windows-installer.yml`. A matching tag such as `v0.1.0` publishes the tested
+installer, portable ZIP, and SHA-256 checksums directly to GitHub Releases. Local Windows build
+instructions are in `packaging/windows/README.md`.
 
 ## Keyboard workflow
 
