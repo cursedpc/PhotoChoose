@@ -178,6 +178,18 @@ On Windows, create the environment with `py -3.11 -m venv .venv`, then activate 
 `.venv\\Scripts\\activate` before installing and running the application. Confirm the selected
 interpreter with `python -VV`; it must report Python 3.11 before dependencies are installed.
 
+## Windows installer build
+
+Windows releases use a PyInstaller one-folder application wrapped in a per-user Inno Setup
+installer. The installer does not require administrator rights, and uninstalling it preserves the
+PhotoChoose catalog under `%APPDATA%\\PhotoChoose\\PhotoChoose`. The same application folder is
+also emitted as a portable ZIP for target-machine diagnostics.
+
+The build must run on Windows; PyInstaller does not cross-build Windows executables from macOS.
+Pushes to `feature/windows-installer`, version tags, and manual workflow runs execute the Windows
+builder in `.github/workflows/windows-installer.yml`. Local Windows build instructions are in
+`packaging/windows/README.md`.
+
 ## Keyboard workflow
 
 - `K`: Keep

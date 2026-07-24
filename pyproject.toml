@@ -23,6 +23,10 @@ dependencies = [
 dev = [
     "ruff",
 ]
+packaging = [
+    "Pillow>=12,<13",
+    "pyinstaller==6.21.0",
+]
 
 [project.scripts]
 photochoose = "photochoose.app:main"
