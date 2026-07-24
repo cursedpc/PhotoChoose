@@ -135,9 +135,9 @@ saliency fallback, and marks the active backends in the analysis details.
   `src/photochoose/model_assets/MODELS.md`.
 
 YuNet and NanoDet remain ONNX/OpenVINO compatible, while OpenVINO can import the face-mesh
-TFLite model. The current development path is entirely local and CPU-capable. Actual Intel
-CPU, integrated-GPU, and OpenVINO `AUTO` performance will be measured on the target Windows
-11 machine; the present macOS work does not claim those performance numbers yet.
+TFLite model. The current development path is entirely local and CPU-only. OpenVINO CPU will be
+implemented and measured on macOS first, then validated on the target Windows 11 machine. Intel
+GPU and OpenVINO `AUTO` execution are outside the current implementation scope.
 
 ## Export behavior
 
@@ -161,17 +161,21 @@ unpreviewable RAW as a technical failure.
 
 ## Development setup
 
-Python 3.11 is recommended. Python 3.9 remains supported for the initial macOS development environment.
+PhotoChoose requires Python 3.11. Keeping one Python minor version across macOS development,
+Windows delivery, and CI avoids native-wheel differences and prepares the inference layer for the
+selected OpenVINO CPU runtime.
 
 ```bash
-python3 -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e .
 python -m photochoose
 ```
 
-On Windows, activate the environment with `.venv\\Scripts\\activate` before installing and running the application.
+On Windows, create the environment with `py -3.11 -m venv .venv`, then activate it with
+`.venv\\Scripts\\activate` before installing and running the application. Confirm the selected
+interpreter with `python -VV`; it must report Python 3.11 before dependencies are installed.
 
 ## Keyboard workflow
 

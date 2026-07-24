@@ -14,7 +14,8 @@ The initial development environment is macOS. The target production environment 
 - **Compare related photographs:** closed eyes or weaker focus should cause rejection primarily when a better photograph of the same moment exists.
 - **Local processing:** photographs, previews, embeddings, and analysis results stay on the computer.
 - **Responsive desktop workflow:** scanning runs in background workers and can be paused or resumed.
-- **Hardware fallback:** Intel GPU acceleration is optional; unsupported models automatically run on the CPU.
+- **CPU-first inference:** the supported path must run entirely on CPU; GPU execution is outside
+  the current implementation scope.
 
 ## Intended workflow
 
@@ -59,20 +60,25 @@ The initial development environment is macOS. The target production environment 
 - General-purpose photo-library management.
 - Automatic permanent deletion.
 - Mobile application.
+- Intel GPU and OpenVINO `AUTO` acceleration until the CPU backend is complete and validated.
 
 ## Proposed technical direction
 
-- **Language:** Python, using a supported 3.x version shared by macOS and Windows.
+- **Language:** Python 3.11 on macOS, Windows, and CI, within the versions supported by the
+  selected OpenVINO release.
 - **Desktop UI:** PySide6/Qt.
 - **Inference format:** ONNX where practical.
-- **Target acceleration:** OpenVINO with `AUTO` selection for Intel GPU/CPU and an explicit CPU mode.
+- **Target acceleration:** OpenVINO CPU only, with the existing OpenCV DNN and LiteRT route as a
+  compatibility fallback.
 - **Image processing:** OpenCV plus Pillow; LibRaw/rawpy or ExifTool for RAW previews and metadata.
 - **Storage:** SQLite for scan state, scores, groups, decisions, and overrides.
 - **Background work:** separate worker processes for decoding and inference so the UI remains responsive.
 - **Packaging:** evaluate PyInstaller and Nuitka after the inference pipeline is stable.
 - **Testing:** pytest for logic and regression tests, plus a fixed, photographer-labeled image corpus.
 
-The inference layer must be isolated behind a small backend interface. macOS development can use CPU inference while Windows uses the same model files through OpenVINO. No feature should require the Intel GPU to function.
+The inference layer must be isolated behind a small backend interface. macOS and Windows should
+use the same model files through OpenVINO CPU, while the existing OpenCV DNN and LiteRT route
+remains a safe fallback during migration. No feature should require a GPU to function.
 
 ## Analysis pipeline
 
@@ -193,16 +199,32 @@ Tier 1 reduces the number of expensive model evaluations and should run on all p
 
 **Exit:** thresholds and ranking weights can be tuned to the photographer's real work without making the system opaque.
 
-### M7 — Intel Windows backend
+### M7A — OpenVINO CPU backend
+
+- Implement this milestone on macOS without waiting for the target Windows notebook.
+- Add OpenVINO as a controlled dependency and align the supported Python version with its runtime.
+- Introduce a common inference-backend interface rather than coupling analysis code to one runtime.
+- Run YuNet and NanoDet through OpenVINO CPU using the existing bundled ONNX models.
+- Run face mesh through OpenVINO CPU when its TFLite import and output parity are confirmed.
+- Keep the current OpenCV DNN and LiteRT implementations as automatic fallbacks.
+- Compare preprocessing, raw outputs, stored evidence, and final decisions against golden cases.
+- Benchmark complete photo analysis, including decoding and non-neural checks, rather than
+  reporting model-only speedups.
+
+**Exit:** OpenVINO CPU is a stable, tested analysis backend on the macOS development machine,
+produces equivalent conservative decisions, and can fall back without losing features.
+
+### M7B — Windows OpenVINO CPU validation
 
 - Install and validate OpenVINO on the exact Windows 11 target.
-- Confirm device discovery for the Intel integrated GPU.
-- Benchmark CPU, GPU, and `AUTO` modes with the same corpus.
+- Confirm discovery and compilation of the OpenVINO CPU device.
+- Benchmark OpenVINO CPU against the legacy CPU backend with the same corpus.
 - Convert or replace unsupported models.
 - Tune input sizes, batch sizes, precision, caching, and worker counts.
 - Verify that CPU fallback produces equivalent decisions within documented tolerance.
 
-**Exit:** stable end-to-end inference on the target machine with measured photos-per-minute, memory usage, and thermals.
+**Exit:** stable CPU-only end-to-end inference on the target machine with measured
+photos-per-minute, memory usage, and thermals.
 
 ### M8 — Windows packaging and field validation
 
@@ -228,11 +250,12 @@ Tier 1 reduces the number of expensive model evaluations and should run on all p
 
 - Run installation, import, unit, database, and small CPU inference tests on a Windows CI runner.
 - Build a Windows artifact regularly to catch packaging failures early.
-- Do not treat virtualized CI as evidence of Intel integrated-GPU performance.
+- Do not treat virtualized CI as evidence of target-machine performance.
 
 ### Exact target validation
 
-- Use the real Windows 11 Intel machine for device compatibility, throughput, memory, driver, and long-running stability tests.
+- Use the real Windows 11 Intel machine for CPU compatibility, throughput, memory, thermals, and
+  long-running stability tests.
 - Maintain a representative private benchmark shoot and record hardware and driver versions with every result.
 - Compare classifications between macOS CPU and Windows OpenVINO to catch backend drift.
 
@@ -254,7 +277,8 @@ Initial numerical targets are provisional and must be calibrated with real label
 - **Closed-eye detection fails with glasses, profiles, or small faces.** Use an uncertain state and reject only with strong evidence and preferably a better alternative.
 - **Aesthetics are subjective.** Keep aesthetic scoring secondary and allow learned personal weights.
 - **RAW decoding is expensive.** Prefer embedded previews and cache normalized thumbnails.
-- **Integrated GPU support varies by generation and driver.** Keep CPU fallback and validate every selected model on the exact target.
+- **Older mobile CPUs can throttle during long shoots.** Measure complete runs, bound worker
+  concurrency, and retain the legacy CPU fallback.
 - **Large shoots can exhaust memory.** Stream work, bound queues and caches, and store intermediate results in SQLite.
 - **File operations can separate related assets.** Treat each photograph and its RAW/JPEG/sidecars as one transactional unit.
 
@@ -308,8 +332,9 @@ Real threshold tuning and performance validation are deliberately deferred until
 large shoots can run on the target machine. Eye visibility is now separated from eyelid geometry:
 small, dark/covered, glare-clipped, or low-detail eye regions become explicit obscured/unresolved
 evidence rather than closed-eye claims. Older analyses are marked stale under the new version
-without changing decisions. The next implementation slice can prepare Windows/OpenVINO validation
-without claiming corpus calibration.
+without changing decisions. The next implementation slice is the CPU-only OpenVINO backend, which
+can be built and validated on macOS now. GPU and `AUTO` execution are explicitly outside the current
+scope.
 
 The desktop interface is organized as a modern three-zone studio workspace: a library
 rail, a distraction-free photographic canvas, and a contextual inspector. Infrequent project
@@ -341,7 +366,8 @@ an automatically questionable frame only when a much stronger alternative exists
 group. RAW/JPEG/XMP sets are now one logical photograph, RAW-only files use cached embedded
 JPEG previews when available, and complete file sets export together. Closing a project
 releases its generated RAW previews without discarding catalog metadata or decisions.
-Broader RAW preview validation, stronger subject analysis, calibration, OpenVINO, and
-Windows packaging remain on the mainline roadmap. Subject evidence is now stored per face
+Broader RAW preview validation, stronger subject analysis, and calibration remain on the mainline
+roadmap. CPU-only OpenVINO is the next backend milestone; Windows CPU validation and packaging
+follow on the target machine. Subject evidence is now stored per face
 and eye and can be overlaid in all culling views; burst ranking uses the weakest primary
 face/eye sharpness rather than allowing a tiny background face to dominate.

@@ -7,7 +7,7 @@ name = "photochoose"
 version = "0.1.0"
 description = "Local-first desktop photo culling for professional shoots"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11,<3.12"
 dependencies = [
     # Qt 6.10.3 currently fails platform-plugin discovery on the Intel macOS
     # development machine; keep the stable 6.9 line until that is resolved.
@@ -32,7 +32,7 @@ where = ["src"]
 photochoose = ["model_assets/*"]
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py311"
 line-length = 100
 
 [tool.ruff.lint]
