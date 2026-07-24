@@ -8,6 +8,11 @@ from typing import Callable, Optional, Tuple
 import cv2
 import numpy as np
 
+from photochoose.inference_backend import (
+    InferenceBackendError,
+    OpenVINOCPUBackend,
+    default_openvino_cpu_backend,
+)
 from photochoose.models import EyeEvidence, FaceEvidence
 
 MODEL_DIRECTORY = Path(__file__).with_name("model_assets")
@@ -23,6 +28,24 @@ MAX_DARK_EYE_FRACTION = 0.78
 MAX_BRIGHT_EYE_FRACTION = 0.85
 RIGHT_EYE_LANDMARKS = (33, 160, 158, 133, 153, 144)
 LEFT_EYE_LANDMARKS = (362, 385, 387, 263, 373, 380)
+YUNET_OUTPUT_NAMES = (
+    "cls_8",
+    "cls_16",
+    "cls_32",
+    "obj_8",
+    "obj_16",
+    "obj_32",
+    "bbox_8",
+    "bbox_16",
+    "bbox_32",
+    "kps_8",
+    "kps_16",
+    "kps_32",
+)
+YUNET_STRIDES = (8, 16, 32)
+YUNET_SCORE_THRESHOLD = 0.75
+YUNET_NMS_THRESHOLD = 0.3
+YUNET_TOP_K = 5000
 
 
 @dataclass(frozen=True)
@@ -53,6 +76,106 @@ class EyeLandmarkResult:
     landmarks: Tuple[Tuple[float, float], ...] = ()
 
 
+class OpenVINOYuNetDetector:
+    """YuNet preprocessing and decoding backed by OpenVINO CPU inference."""
+
+    backend_name = "openvino-cpu"
+
+    def __init__(self, backend: OpenVINOCPUBackend, model_path: Path) -> None:
+        self._model = backend.compile_model(model_path, (1, 3, -1, -1))
+        self._input_size = (320, 320)
+
+    def setInputSize(self, size) -> None:
+        self._input_size = tuple(size)
+
+    def detect(self, image: np.ndarray):
+        height, width = image.shape[:2]
+        if (width, height) != self._input_size:
+            raise ValueError("YuNet input size does not match the supplied image")
+        pad_width = ((width - 1) // 32 + 1) * 32
+        pad_height = ((height - 1) // 32 + 1) * 32
+        padded = cv2.copyMakeBorder(
+            image,
+            0,
+            pad_height - height,
+            0,
+            pad_width - width,
+            cv2.BORDER_CONSTANT,
+            value=0,
+        )
+        blob = cv2.dnn.blobFromImage(padded)
+        outputs = self._model.infer(blob, YUNET_OUTPUT_NAMES)
+        faces = self._postprocess(outputs, pad_width, pad_height)
+        return 1, faces
+
+    @staticmethod
+    def _postprocess(
+        outputs: Tuple[np.ndarray, ...], pad_width: int, pad_height: int
+    ) -> Optional[np.ndarray]:
+        candidates = []
+        for level, stride in enumerate(YUNET_STRIDES):
+            columns = pad_width // stride
+            classes = np.clip(np.asarray(outputs[level]).reshape(-1), 0.0, 1.0)
+            objects = np.clip(
+                np.asarray(outputs[level + len(YUNET_STRIDES)]).reshape(-1),
+                0.0,
+                1.0,
+            )
+            boxes = np.asarray(
+                outputs[level + len(YUNET_STRIDES) * 2], dtype=np.float32
+            ).reshape(-1, 4)
+            keypoints = np.asarray(
+                outputs[level + len(YUNET_STRIDES) * 3], dtype=np.float32
+            ).reshape(-1, 5, 2)
+            scores = np.sqrt(classes * objects)
+            selected = np.flatnonzero(scores >= YUNET_SCORE_THRESHOLD)
+            if not len(selected):
+                continue
+            row_indexes = selected // columns
+            column_indexes = selected % columns
+            selected_boxes = boxes[selected]
+            centers_x = (column_indexes + selected_boxes[:, 0]) * stride
+            centers_y = (row_indexes + selected_boxes[:, 1]) * stride
+            widths = np.exp(selected_boxes[:, 2]) * stride
+            heights = np.exp(selected_boxes[:, 3]) * stride
+            selected_keypoints = keypoints[selected]
+
+            faces = np.empty((len(selected), 15), dtype=np.float32)
+            faces[:, 0] = centers_x - widths / 2.0
+            faces[:, 1] = centers_y - heights / 2.0
+            faces[:, 2] = widths
+            faces[:, 3] = heights
+            faces[:, 4:14:2] = (
+                selected_keypoints[:, :, 0] + column_indexes[:, np.newaxis]
+            ) * stride
+            faces[:, 5:14:2] = (
+                selected_keypoints[:, :, 1] + row_indexes[:, np.newaxis]
+            ) * stride
+            faces[:, 14] = scores[selected]
+            candidates.append(faces)
+
+        if not candidates:
+            return None
+        faces = np.concatenate(candidates)
+        if len(faces) <= 1:
+            return faces
+        nms_boxes = [
+            [int(face[0]), int(face[1]), int(face[2]), int(face[3])]
+            for face in faces
+        ]
+        keep = cv2.dnn.NMSBoxes(
+            nms_boxes,
+            faces[:, 14].tolist(),
+            YUNET_SCORE_THRESHOLD,
+            YUNET_NMS_THRESHOLD,
+            eta=1.0,
+            top_k=YUNET_TOP_K,
+        )
+        if len(keep) == 0:
+            return None
+        return faces[np.asarray(keep, dtype=np.int32).reshape(-1)]
+
+
 class FaceLandmarkEyeAnalyzer:
     """Measure eyelid geometry using the local MediaPipe face-mesh model."""
 
@@ -60,30 +183,68 @@ class FaceLandmarkEyeAnalyzer:
         self,
         model_path: Path = FACE_LANDMARK_MODEL_PATH,
         inference: Optional[Callable[[np.ndarray], np.ndarray]] = None,
+        backend: Optional[OpenVINOCPUBackend] = None,
     ) -> None:
         self._inference = inference
+        self._model_path = model_path
+        self.backend_name = "custom" if inference is not None else "none"
+        self.fallback_reason: Optional[str] = None
         self.error: Optional[str] = None
         if self._inference is None:
-            try:
-                from ai_edge_litert.interpreter import Interpreter
+            backend = backend or default_openvino_cpu_backend()
+            if backend is not None:
+                try:
+                    model = backend.compile_model(model_path, (1, 256, 256, 3))
+                    self._inference = lambda tensor: model.infer(
+                        tensor, ("Identity",)
+                    )[0]
+                    self.backend_name = backend.name
+                except InferenceBackendError as exc:
+                    self.fallback_reason = str(exc)
+            if self._inference is None:
+                self._activate_litert()
 
-                interpreter = Interpreter(model_path=str(model_path))
-                interpreter.allocate_tensors()
-                input_index = interpreter.get_input_details()[0]["index"]
-                landmark_output_index = next(
-                    output["index"]
-                    for output in interpreter.get_output_details()
-                    if output["shape"][-1] == 1434
-                )
+    def _activate_litert(self) -> bool:
+        try:
+            from ai_edge_litert.interpreter import Interpreter
 
-                def infer(tensor: np.ndarray) -> np.ndarray:
-                    interpreter.set_tensor(input_index, tensor)
-                    interpreter.invoke()
-                    return interpreter.get_tensor(landmark_output_index)
+            interpreter = Interpreter(model_path=str(self._model_path))
+            interpreter.allocate_tensors()
+            input_index = interpreter.get_input_details()[0]["index"]
+            landmark_output_index = next(
+                output["index"]
+                for output in interpreter.get_output_details()
+                if output["shape"][-1] == 1434
+            )
 
-                self._inference = infer
-            except (ImportError, RuntimeError, StopIteration, OSError) as exc:
-                self.error = str(exc)
+            def infer(tensor: np.ndarray) -> np.ndarray:
+                interpreter.set_tensor(input_index, tensor)
+                interpreter.invoke()
+                return interpreter.get_tensor(landmark_output_index)
+
+            self._inference = infer
+            self.backend_name = "litert"
+            self.error = None
+            return True
+        except (ImportError, RuntimeError, StopIteration, OSError) as exc:
+            self.error = str(exc)
+            self._inference = None
+            self.backend_name = "none"
+            return False
+
+    def _run_inference(self, tensor: np.ndarray) -> np.ndarray:
+        if self._inference is None:
+            raise RuntimeError("Face landmark inference is unavailable")
+        try:
+            return self._inference(tensor)
+        except (InferenceBackendError, RuntimeError, ValueError) as exc:
+            if self.backend_name != "openvino-cpu":
+                raise
+            self.fallback_reason = str(exc)
+            self._inference = None
+            if not self._activate_litert() or self._inference is None:
+                raise
+            return self._inference(tensor)
 
     @property
     def available(self) -> bool:
@@ -98,10 +259,13 @@ class FaceLandmarkEyeAnalyzer:
         )
         tensor = (rgb.astype(np.float32) / 255.0)[np.newaxis, ...]
         try:
-            landmarks = np.asarray(self._inference(tensor), dtype=np.float32).reshape(-1, 3)
-        except (RuntimeError, ValueError, cv2.error) as exc:
+            landmarks = np.asarray(self._run_inference(tensor), dtype=np.float32).reshape(
+                -1, 3
+            )
+        except (RuntimeError, ValueError, cv2.error, InferenceBackendError) as exc:
             self.error = str(exc)
             self._inference = None
+            self.backend_name = "none"
             return self._uncertain_pair()
         if len(landmarks) < 478:
             return self._uncertain_pair()
@@ -161,9 +325,27 @@ class ModelSubjectAnalyzer:
         self,
         face_model_path: Path = FACE_MODEL_PATH,
         eye_analyzer: Optional[FaceLandmarkEyeAnalyzer] = None,
+        backend: Optional[OpenVINOCPUBackend] = None,
     ) -> None:
         self.face_detector = None
+        self.face_backend_name = "none"
+        self.fallback_reason: Optional[str] = None
         self.error: Optional[str] = None
+        self._face_model_path = face_model_path
+        backend = backend or default_openvino_cpu_backend()
+        if backend is not None:
+            try:
+                self.face_detector = OpenVINOYuNetDetector(backend, face_model_path)
+                self.face_backend_name = backend.name
+            except InferenceBackendError as exc:
+                self.fallback_reason = str(exc)
+        if self.face_detector is None:
+            self._activate_opencv_face_detector(face_model_path)
+        self.eye_analyzer = eye_analyzer or FaceLandmarkEyeAnalyzer(
+            backend=backend
+        )
+
+    def _activate_opencv_face_detector(self, face_model_path: Path) -> bool:
         try:
             self.face_detector = cv2.FaceDetectorYN.create(
                 str(face_model_path),
@@ -173,9 +355,14 @@ class ModelSubjectAnalyzer:
                 0.3,
                 5000,
             )
+            self.face_backend_name = "opencv"
+            self.error = None
+            return True
         except cv2.error as exc:
             self.error = str(exc)
-        self.eye_analyzer = eye_analyzer or FaceLandmarkEyeAnalyzer()
+            self.face_detector = None
+            self.face_backend_name = "none"
+            return False
 
     @property
     def available(self) -> bool:
@@ -189,13 +376,25 @@ class ModelSubjectAnalyzer:
         try:
             self.face_detector.setInputSize((width, height))
             _status, faces = self.face_detector.detect(detection)
-        except cv2.error as exc:
-            self.error = str(exc)
-            self.face_detector = None
-            return None
-        model_name = (
-            "yunet+face-mesh-litert" if self.eye_analyzer.available else "yunet"
-        )
+        except (cv2.error, InferenceBackendError, RuntimeError, ValueError) as exc:
+            if self.face_backend_name == "openvino-cpu":
+                self.fallback_reason = str(exc)
+                self.face_detector = None
+                if not self._activate_opencv_face_detector(self._face_model_path):
+                    self.face_detector = None
+                    return None
+                try:
+                    self.face_detector.setInputSize((width, height))
+                    _status, faces = self.face_detector.detect(detection)
+                except cv2.error as fallback_exc:
+                    self.error = str(fallback_exc)
+                    self.face_detector = None
+                    return None
+            else:
+                self.error = str(exc)
+                self.face_detector = None
+                return None
+        model_name = self._active_model_name()
         if faces is None or len(faces) == 0:
             return SubjectModelResult(0, 0, 0, 0, 0, None, None, None, model_name)
 
@@ -287,6 +486,9 @@ class ModelSubjectAnalyzer:
                 )
             )
 
+        # Eye inference can switch from OpenVINO to LiteRT while processing a face.
+        # Record the runtime that actually produced the evidence, not the initial choice.
+        model_name = self._active_model_name()
         if not regions:
             return SubjectModelResult(0, 0, 0, 0, 0, None, None, None, model_name)
         largest_area = max(region.bounds[2] * region.bounds[3] for region in regions)
@@ -342,6 +544,18 @@ class ModelSubjectAnalyzer:
                 eye.state == "obscured" for eye in important_eyes
             ),
             regions=tuple(regions),
+        )
+
+    def _active_model_name(self) -> str:
+        face_model_name = (
+            "yunet-openvino-cpu"
+            if self.face_backend_name == "openvino-cpu"
+            else "yunet"
+        )
+        if not self.eye_analyzer.available:
+            return face_model_name
+        return "{0}+face-mesh-{1}".format(
+            face_model_name, getattr(self.eye_analyzer, "backend_name", "custom")
         )
 
     @staticmethod

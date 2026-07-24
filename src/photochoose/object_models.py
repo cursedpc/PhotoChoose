@@ -8,6 +8,11 @@ from typing import Callable, List, Optional, Sequence, Tuple
 import cv2
 import numpy as np
 
+from photochoose.inference_backend import (
+    InferenceBackendError,
+    OpenVINOCPUBackend,
+    default_openvino_cpu_backend,
+)
 from photochoose.models import ObjectEvidence
 
 MODEL_DIRECTORY = Path(__file__).with_name("model_assets")
@@ -19,6 +24,7 @@ PERSON_EVIDENCE_CONFIDENCE = 0.36
 OBJECT_NMS_THRESHOLD = 0.60
 OBJECT_STRIDES = (8, 16, 32)
 OBJECT_REG_MAX = 7
+OBJECT_OUTPUT_NAMES = ("792", "795", "814", "817", "836", "839")
 
 COCO_CLASSES = (
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck",
@@ -50,25 +56,63 @@ class GeneralSubjectAnalyzer:
         self,
         model_path: Path = OBJECT_MODEL_PATH,
         inference: Optional[Callable[[np.ndarray], Sequence[np.ndarray]]] = None,
+        backend: Optional[OpenVINOCPUBackend] = None,
     ) -> None:
         self._inference = inference
+        self._model_path = model_path
+        self.backend_name = "custom" if inference is not None else "none"
+        self.fallback_reason: Optional[str] = None
         self.error: Optional[str] = None
         if self._inference is None:
-            try:
-                network = cv2.dnn.readNet(str(model_path))
-                output_names = network.getUnconnectedOutLayersNames()
-
-                def infer(blob: np.ndarray) -> Sequence[np.ndarray]:
-                    network.setInput(blob)
-                    return network.forward(output_names)
-
-                self._inference = infer
-            except cv2.error as exc:
-                self.error = str(exc)
+            backend = backend or default_openvino_cpu_backend()
+            if backend is not None:
+                try:
+                    model = backend.compile_model(model_path)
+                    self._inference = lambda blob: model.infer(
+                        blob, OBJECT_OUTPUT_NAMES
+                    )
+                    self.backend_name = backend.name
+                except InferenceBackendError as exc:
+                    self.fallback_reason = str(exc)
+            if self._inference is None:
+                self._activate_opencv()
         self._anchors = tuple(
             self._anchors_for_stride(stride) for stride in OBJECT_STRIDES
         )
         self._project = np.arange(OBJECT_REG_MAX + 1, dtype=np.float32)
+
+    def _activate_opencv(self) -> bool:
+        try:
+            network = cv2.dnn.readNet(str(self._model_path))
+            output_names = network.getUnconnectedOutLayersNames()
+
+            def infer(blob: np.ndarray) -> Sequence[np.ndarray]:
+                network.setInput(blob)
+                return network.forward(output_names)
+
+            self._inference = infer
+            self.backend_name = "opencv"
+            self.error = None
+            return True
+        except cv2.error as exc:
+            self.error = str(exc)
+            self._inference = None
+            self.backend_name = "none"
+            return False
+
+    def _run_inference(self, blob: np.ndarray) -> Sequence[np.ndarray]:
+        if self._inference is None:
+            raise RuntimeError("Object inference is unavailable")
+        try:
+            return self._inference(blob)
+        except (InferenceBackendError, RuntimeError, ValueError) as exc:
+            if self.backend_name != "openvino-cpu":
+                raise
+            self.fallback_reason = str(exc)
+            self._inference = None
+            if not self._activate_opencv() or self._inference is None:
+                raise
+            return self._inference(blob)
 
     @property
     def available(self) -> bool:
@@ -83,18 +127,19 @@ class GeneralSubjectAnalyzer:
             try:
                 prepared, letterbox = self._letterbox(image)
                 blob = self._preprocess(prepared)
-                outputs = self._inference(blob)
+                outputs = self._run_inference(blob)
                 boxes = self._postprocess(outputs)
                 objects = self._object_evidence(image, boxes, letterbox)
-                model_name = "nanodet-opencv"
-            except (cv2.error, RuntimeError, ValueError) as exc:
+                model_name = "nanodet-{0}".format(self.backend_name)
+            except (cv2.error, RuntimeError, ValueError, InferenceBackendError) as exc:
                 self.error = str(exc)
                 self._inference = None
+                self.backend_name = "none"
         if not objects:
             salient = self._salient_object(image)
             objects = (salient,) if salient is not None else ()
-            if model_name == "nanodet-opencv" and objects:
-                model_name = "nanodet+spectral-saliency"
+            if model_name.startswith("nanodet-") and objects:
+                model_name += "+spectral-saliency"
         primary_scores = [
             item.focus_score
             for item in objects

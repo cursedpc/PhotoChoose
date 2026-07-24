@@ -38,6 +38,7 @@ class _FakeFaceDetector:
 
 class _FakeEyeAnalyzer:
     available = True
+    backend_name = "custom"
 
     def analyze(self, _face_image):
         right = ((70.0, 100.0), (78.0, 94.0), (90.0, 94.0),
@@ -95,7 +96,9 @@ class VisionModelTests(unittest.TestCase):
 
         self.assertIsNotNone(result)
         self.assertEqual(0, result.face_count)
-        self.assertEqual("yunet+face-mesh-litert", result.model_name)
+        self.assertEqual(
+            "yunet-openvino-cpu+face-mesh-openvino-cpu", result.model_name
+        )
 
     def test_face_crop_stays_inside_image_bounds(self) -> None:
         image = np.zeros((100, 100, 3), dtype=np.uint8)

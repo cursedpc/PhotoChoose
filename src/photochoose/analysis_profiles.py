@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Tuple, Union
 
-ANALYSIS_VERSION = "profiles-v2-eye-visibility"
+ANALYSIS_VERSION = "profiles-v3-openvino-cpu"
 
 
 @dataclass(frozen=True)
