@@ -56,6 +56,21 @@ class PhotoDatabaseTests(unittest.TestCase):
             [photo.relative_path for photo in photos],
         )
 
+    def test_scan_reports_logical_asset_progress(self) -> None:
+        self._write_photo("one.jpg")
+        self._write_photo("Camera A/two.jpg")
+        project = self.database.add_project(self.shoot)
+        progress = []
+
+        self.database.scan_project(
+            project.id,
+            lambda complete, total: progress.append((complete, total)),
+        )
+
+        self.assertEqual((0, 2), progress[0])
+        self.assertEqual((2, 2), progress[-1])
+        self.assertEqual([(0, 2), (1, 2), (2, 2)], progress)
+
     def test_decisions_and_best_flag_are_independent(self) -> None:
         self._write_photo("one.jpg")
         self._write_photo("two.jpg")

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields, replace
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from photochoose.metadata import PhotoMetadata, read_photo_metadata
 from photochoose.raw_preview import extract_embedded_jpeg
@@ -66,6 +66,7 @@ def discover_logical_assets(
     root: Path,
     cache_directory: Path,
     existing_paths: Sequence[str] = (),
+    progress: Optional[Callable[[int, int], None]] = None,
 ) -> Mapping[str, LogicalAsset]:
     grouped: Dict[Tuple[str, str], Dict[str, List[Path]]] = {}
     for path in root.rglob("*"):
@@ -91,7 +92,15 @@ def discover_logical_assets(
 
     discovered: Dict[str, LogicalAsset] = {}
     existing = set(existing_paths)
-    for key, group in grouped.items():
+    logical_groups = [
+        item
+        for item in grouped.items()
+        if item[1]["preview"] or item[1]["raw"]
+    ]
+    total = len(logical_groups)
+    if progress is not None:
+        progress(0, total)
+    for complete, (key, group) in enumerate(logical_groups, start=1):
         previews = sorted(group["preview"], key=lambda path: path.name.casefold())
         raws = sorted(group["raw"], key=lambda path: path.name.casefold())
         sidecars = sorted(group["sidecar"], key=lambda path: path.name.casefold())
@@ -135,6 +144,8 @@ def discover_logical_assets(
                 sidecars if not raws else [],
             )
             discovered[asset.relative_path] = asset
+        if progress is not None:
+            progress(complete, total)
     return discovered
 
 

@@ -19,10 +19,25 @@ from PySide6.QtWidgets import QFrame, QListView, QPushButton  # noqa: E402
 from photochoose.analysis_profiles import ANALYSIS_VERSION  # noqa: E402
 from photochoose.app import create_application  # noqa: E402
 from photochoose.fullscreen_viewer import FullscreenPhotoDialog  # noqa: E402
+from photochoose.main_window import _progress_message  # noqa: E402
 from photochoose.models import Decision, PhotoView  # noqa: E402
 
 
 class GuiSmokeTests(unittest.TestCase):
+    def test_progress_message_estimates_remaining_time(self) -> None:
+        self.assertEqual(
+            "Scanning… 0 / 20 · estimating time…",
+            _progress_message("Scanning…", 0, 20, 0.5),
+        )
+        self.assertEqual(
+            "Analyzing locally… 10 / 30 · ETA 4 min",
+            _progress_message("Analyzing locally…", 10, 30, 120.0),
+        )
+        self.assertEqual(
+            "Analyzing locally… 29 / 30 · ETA less than 1 min",
+            _progress_message("Analyzing locally…", 29, 30, 30.0),
+        )
+
     def test_classification_preserves_grid_context(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
