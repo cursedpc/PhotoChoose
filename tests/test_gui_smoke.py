@@ -14,7 +14,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QItemSelectionModel, Qt  # noqa: E402
 from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
-from PySide6.QtWidgets import QFrame, QPushButton  # noqa: E402
+from PySide6.QtWidgets import QFrame, QListView, QPushButton  # noqa: E402
 
 from photochoose.analysis_profiles import ANALYSIS_VERSION  # noqa: E402
 from photochoose.app import create_application  # noqa: E402
@@ -23,6 +23,98 @@ from photochoose.models import Decision, PhotoView  # noqa: E402
 
 
 class GuiSmokeTests(unittest.TestCase):
+    def test_classification_preserves_grid_context(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            app = create_application(["photochoose-test"], root / "state.sqlite3")
+            window = app.main_window
+            shoot = root / "Portraits"
+            shoot.mkdir()
+            for index in range(18):
+                image = np.full(
+                    (120, 160, 3),
+                    (40 + index, 80 + index, 120 + index),
+                    dtype=np.uint8,
+                )
+                success, encoded = cv2.imencode(".bmp", image)
+                self.assertTrue(success)
+                (shoot / "portrait-{0:02d}.bmp".format(index)).write_bytes(
+                    encoded.tobytes()
+                )
+
+            project = window.database.add_project(shoot)
+            window.database.scan_project(project.id)
+            window._load_projects(project.id)
+            window.resize(1080, 700)
+            app.processEvents()
+
+            selection = window.photo_grid.selectionModel()
+
+            def selected_ids():
+                return set(window._selected_photo_ids())
+
+            single_index = window.photo_model.index(10, 0)
+            single_id = single_index.data(window.photo_model.PhotoIdRole)
+            selection.select(single_index, QItemSelectionModel.ClearAndSelect)
+            selection.setCurrentIndex(single_index, QItemSelectionModel.NoUpdate)
+            window.photo_grid.scrollTo(single_index, QListView.PositionAtCenter)
+            window.photo_grid.setFocus(Qt.OtherFocusReason)
+            app.processEvents()
+            scroll_before = window.photo_grid.verticalScrollBar().value()
+            self.assertGreater(window.photo_grid.verticalScrollBar().maximum(), 0)
+
+            window._set_decision(Decision.REVIEW)
+            app.processEvents()
+            self.assertEqual({single_id}, selected_ids())
+            self.assertEqual(
+                single_id,
+                selection.currentIndex().data(window.photo_model.PhotoIdRole),
+            )
+            self.assertTrue(window.photo_grid.hasFocus())
+            self.assertEqual(scroll_before, window.photo_grid.verticalScrollBar().value())
+            self.assertIn("portrait-10.bmp", window.inspector.details_label.text())
+
+            multi_indexes = [window.photo_model.index(row, 0) for row in (7, 8)]
+            multi_ids = {
+                index.data(window.photo_model.PhotoIdRole) for index in multi_indexes
+            }
+            selection.select(multi_indexes[0], QItemSelectionModel.ClearAndSelect)
+            selection.select(multi_indexes[1], QItemSelectionModel.Select)
+            selection.setCurrentIndex(multi_indexes[1], QItemSelectionModel.NoUpdate)
+            window._set_decision(Decision.KEEP)
+            app.processEvents()
+            self.assertEqual(multi_ids, selected_ids())
+            self.assertEqual(
+                multi_indexes[1].data(window.photo_model.PhotoIdRole),
+                selection.currentIndex().data(window.photo_model.PhotoIdRole),
+            )
+
+            review_ids = [
+                photo.id
+                for photo in window.database.list_photos(project.id, PhotoView.ALL)[:4]
+            ]
+            window.database.set_decision(review_ids, Decision.REVIEW)
+            window.view_tabs.setCurrentIndex(3)
+            app.processEvents()
+            self.assertGreaterEqual(window.photo_model.rowCount(), 4)
+            filtered_ids = [
+                window.photo_model.index(row, 0).data(window.photo_model.PhotoIdRole)
+                for row in range(window.photo_model.rowCount())
+            ]
+            removed_index = window.photo_model.index(1, 0)
+            removed_id = removed_index.data(window.photo_model.PhotoIdRole)
+            expected_fallback_id = filtered_ids[2]
+            selection.select(removed_index, QItemSelectionModel.ClearAndSelect)
+            selection.setCurrentIndex(removed_index, QItemSelectionModel.NoUpdate)
+
+            window._set_decision(Decision.KEEP)
+            app.processEvents()
+            self.assertNotIn(removed_id, selected_ids())
+            self.assertEqual({expected_fallback_id}, selected_ids())
+            self.assertEqual(1, selection.currentIndex().row())
+            self.assertTrue(window.photo_grid.hasFocus())
+            window.close()
+
     def test_window_loads_a_project_and_persists_actions(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -227,6 +227,10 @@ class PhotoListModel(QAbstractListModel):
     def photo_ids(self, indexes) -> List[int]:
         return [self.photos[index.row()].id for index in indexes if index.isValid()]
 
+    def index_for_photo_id(self, photo_id: Optional[int]) -> QModelIndex:
+        row = self._rows_by_id.get(photo_id)
+        return QModelIndex() if row is None else self.index(self._model_row_for_photo_row(row), 0)
+
     def selected_photos(self, indexes) -> List[Photo]:
         return [self.photos[index.row()] for index in indexes if index.isValid()]
 

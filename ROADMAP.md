@@ -317,17 +317,15 @@ operations and scoring settings live in menus, while Analyze remains the single 
 action. A continuous graphite visual system uses native typography and structural dividers instead
 of floating cards or macOS-only effects, so the same hierarchy can ship on Windows later.
 
-### Next design task — preserve selection after classification
+### Completed design task — preserve selection after classification
 
-**UI-01:** changing a selected grid photo to Keep, Review, Reject, Unreviewed, or Best currently
-saves the new value but refreshes the model and drops the photo selection and keyboard focus. The
-Inspector consequently looks as though the photo was never clicked.
+**UI-01:** changing a selected grid photo to Keep, Review, Reject, Unreviewed, or Best now
+preserves its selection, the active photo, grid keyboard focus, and the viewport while refreshing
+the saved classification and Inspector state.
 
-The next design-branch change must preserve selected photo IDs, grid keyboard focus, and scroll
-position across decision refreshes. The Inspector and thumbnail state should update in place. If a
-decision removes the active photo from the current filtered view, select the nearest surviving
-photo instead of leaving the workflow without focus. Cover single selection, multi-selection,
-All, and decision-filtered views with a GUI regression test.
+If a decision removes the active photo from the current filtered view, the nearest surviving photo
+is selected instead of leaving the workflow without focus. GUI regression coverage exercises
+single selection, multi-selection, All, and decision-filtered views.
 
 ## Current implementation status
 

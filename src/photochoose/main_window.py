@@ -10,6 +10,7 @@ from PySide6.QtCore import (
     QRunnable,
     Qt,
     QThreadPool,
+    QTimer,
     Signal,
     Slot,
 )
@@ -1044,18 +1045,38 @@ class MainWindow(QMainWindow):
         if not photo_ids:
             return
         self.database.set_decision(photo_ids, decision)
-        self._refresh_photos()
+        self._refresh_photos(preserve_selection=True, focus_grid=True)
 
     def _toggle_best(self) -> None:
         photo_ids = self._selected_photo_ids()
         if not photo_ids:
             return
         self.database.toggle_best(photo_ids)
-        self._refresh_photos()
+        self._refresh_photos(preserve_selection=True, focus_grid=True)
 
-    def _refresh_photos(self) -> None:
+    def _refresh_photos(
+        self, preserve_selection: bool = False, focus_grid: bool = False
+    ) -> None:
         if self.current_project is None:
             return
+
+        selection_model = self.photo_grid.selectionModel()
+        selected_ids = self._selected_photo_ids() if preserve_selection else []
+        current_index = selection_model.currentIndex()
+        current_id = (
+            current_index.data(self.photo_model.PhotoIdRole)
+            if preserve_selection and current_index.isValid()
+            else None
+        )
+        anchor_row = current_index.row() if current_index.isValid() else -1
+        if anchor_row < 0 and preserve_selection:
+            selected_indexes = selection_model.selectedIndexes()
+            anchor_row = selected_indexes[0].row() if selected_indexes else -1
+        horizontal_scroll = self.photo_grid.horizontalScrollBar().value()
+        vertical_scroll = self.photo_grid.verticalScrollBar().value()
+        project_id = self.current_project.id
+        view = self.current_view
+
         self.photo_model.refresh(self.current_project.id, self.current_view)
         if self.photo_model.rowCount():
             self.canvas_stack.setCurrentIndex(1)
@@ -1065,9 +1086,85 @@ class MainWindow(QMainWindow):
                 "Try another filter, or use Project → Rescan if files were added."
             )
             self.canvas_stack.setCurrentIndex(0)
-        self.photo_grid.clearSelection()
+
+        active_index = None
+        if preserve_selection and selected_ids:
+            surviving_indexes = [
+                index
+                for photo_id in selected_ids
+                if (index := self.photo_model.index_for_photo_id(photo_id)).isValid()
+            ]
+            if surviving_indexes:
+                active_index = self.photo_model.index_for_photo_id(current_id)
+                if not active_index.isValid():
+                    active_index = surviving_indexes[0]
+            elif self.photo_model.rowCount():
+                fallback_row = min(max(anchor_row, 0), self.photo_model.rowCount() - 1)
+                active_index = self.photo_model.index(fallback_row, 0)
+                surviving_indexes = [active_index]
+
+            signals_were_blocked = selection_model.blockSignals(True)
+            try:
+                selection_model.clearSelection()
+                for position, index in enumerate(surviving_indexes):
+                    flag = (
+                        QItemSelectionModel.ClearAndSelect
+                        if position == 0
+                        else QItemSelectionModel.Select
+                    )
+                    selection_model.select(index, flag)
+                if active_index is not None and active_index.isValid():
+                    selection_model.setCurrentIndex(
+                        active_index, QItemSelectionModel.NoUpdate
+                    )
+            finally:
+                selection_model.blockSignals(signals_were_blocked)
+        else:
+            self.photo_grid.clearSelection()
+
         self._update_counts()
         self._selection_changed()
+        if focus_grid and active_index is not None and active_index.isValid():
+            self.photo_grid.setFocus(Qt.OtherFocusReason)
+
+        if preserve_selection:
+            active_id = (
+                active_index.data(self.photo_model.PhotoIdRole)
+                if active_index is not None and active_index.isValid()
+                else None
+            )
+            QTimer.singleShot(
+                0,
+                lambda: self._restore_grid_viewport(
+                    project_id,
+                    view,
+                    horizontal_scroll,
+                    vertical_scroll,
+                    active_id,
+                ),
+            )
+
+    def _restore_grid_viewport(
+        self,
+        project_id: int,
+        view: PhotoView,
+        horizontal_scroll: int,
+        vertical_scroll: int,
+        active_photo_id: Optional[int],
+    ) -> None:
+        if (
+            self.current_project is None
+            or self.current_project.id != project_id
+            or self.current_view != view
+        ):
+            return
+        self.photo_grid.horizontalScrollBar().setValue(horizontal_scroll)
+        self.photo_grid.verticalScrollBar().setValue(vertical_scroll)
+        active_index = self.photo_model.index_for_photo_id(active_photo_id)
+        if active_index.isValid() and not self.photo_grid.viewport().rect().intersects(
+            self.photo_grid.visualRect(active_index)
+        ):
+            self.photo_grid.scrollTo(active_index, QListView.EnsureVisible)
 
     def _update_counts(self) -> None:
         if self.current_project is None:
