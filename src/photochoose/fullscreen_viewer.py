@@ -19,6 +19,7 @@ from PySide6.QtGui import (
     QColor,
     QContextMenuEvent,
     QImage,
+    QImageIOHandler,
     QImageReader,
     QKeyEvent,
     QMouseEvent,
@@ -160,6 +161,9 @@ class FullscreenPhotoDialog(QDialog):
         self.current_index = min(max(0, current_index), max(0, len(self.photos) - 1))
         self._last_wheel_navigation = 0.0
         self._current_image = QImage()
+        self._current_image_path = ""
+        self._decoded_canvas_pixels = QSize()
+        self._current_device_pixel_ratio = 1.0
         self.overlay_enabled = False
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.setObjectName("fullscreenSurface")
@@ -216,6 +220,11 @@ class FullscreenPhotoDialog(QDialog):
         self.image_label.setContextMenuPolicy(Qt.CustomContextMenu)
         self.image_label.customContextMenuRequested.connect(self._show_image_context_menu)
         layout.addWidget(self.image_label, 1)
+
+        self._resize_decode_timer = QTimer(self)
+        self._resize_decode_timer.setSingleShot(True)
+        self._resize_decode_timer.setInterval(80)
+        self._resize_decode_timer.timeout.connect(self._decode_current_image)
 
         self.footer_label = QLabel()
         self.footer_label.setAlignment(Qt.AlignCenter)
@@ -309,46 +318,109 @@ class FullscreenPhotoDialog(QDialog):
     def _load_image(self, image_path: str) -> None:
         self.image_label.clear()
         self._current_image = QImage()
-        reader = QImageReader(image_path)
+        self._current_image_path = image_path
+        self._decoded_canvas_pixels = QSize()
+        self._decode_current_image(force=True)
+
+    def _decode_current_image(self, force: bool = False) -> None:
+        if not self._current_image_path:
+            return
+        canvas_pixels, device_pixel_ratio = self._physical_canvas_target()
+        if (
+            not force
+            and canvas_pixels == self._decoded_canvas_pixels
+            and abs(device_pixel_ratio - self._current_device_pixel_ratio) < 0.01
+        ):
+            self._render_current_image()
+            return
+
+        reader = QImageReader(self._current_image_path)
         reader.setAutoTransform(True)
-        screen = self.screen() or QApplication.primaryScreen()
-        if screen is not None:
-            target = screen.availableGeometry().size()
-            target.setWidth(max(1, target.width() - 48))
-            target.setHeight(max(1, target.height() - 150))
-            source_size = reader.size()
-            if source_size.isValid():
-                reader.setScaledSize(source_size.scaled(target, Qt.KeepAspectRatio))
+        source_size = reader.size()
+        if source_size.isValid():
+            reader.setScaledSize(
+                self._decode_size(
+                    source_size,
+                    canvas_pixels,
+                    self._transformation_rotates(reader.transformation()),
+                )
+            )
         image = reader.read()
         if image.isNull():
             self.image_label.setText("Could not open this photograph")
             return
         self._current_image = image
-        self._scale_current_image()
+        self._decoded_canvas_pixels = canvas_pixels
+        self._current_device_pixel_ratio = device_pixel_ratio
+        self._render_current_image()
 
-    def _scale_current_image(self) -> None:
+    def _render_current_image(self) -> None:
         if self._current_image.isNull():
             return
-        target = self.image_label.contentsRect().size()
-        if target.width() < 2 or target.height() < 2:
-            return
+        target_pixels, device_pixel_ratio = self._physical_canvas_target()
         display_image = self._current_image
         if self.overlay_enabled and self.current_photo is not None:
             display_image = render_analysis_overlay(display_image, self.current_photo)
-        scaled = display_image.scaled(
-            target,
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation,
+        fitted_size = display_image.size().scaled(target_pixels, Qt.KeepAspectRatio)
+        if fitted_size != display_image.size():
+            display_image = display_image.scaled(
+                fitted_size,
+                Qt.IgnoreAspectRatio,
+                Qt.SmoothTransformation,
+            )
+        pixmap = QPixmap.fromImage(display_image)
+        pixmap.setDevicePixelRatio(device_pixel_ratio)
+        self.image_label.setPixmap(pixmap)
+
+    def _physical_canvas_target(self) -> tuple[QSize, float]:
+        screen = self.screen() or QApplication.primaryScreen()
+        device_pixel_ratio = screen.devicePixelRatio() if screen is not None else 1.0
+        logical_size = self.image_label.contentsRect().size()
+        if not self.isVisible() or logical_size.width() < 2 or logical_size.height() < 2:
+            if screen is not None:
+                logical_size = screen.availableGeometry().size()
+                logical_size.setWidth(max(1, logical_size.width() - 48))
+                logical_size.setHeight(max(1, logical_size.height() - 220))
+            else:
+                logical_size = QSize(1280, 720)
+        return self._physical_size(logical_size, device_pixel_ratio), device_pixel_ratio
+
+    @staticmethod
+    def _physical_size(logical_size: QSize, device_pixel_ratio: float) -> QSize:
+        return QSize(
+            max(1, round(logical_size.width() * device_pixel_ratio)),
+            max(1, round(logical_size.height() * device_pixel_ratio)),
         )
-        self.image_label.setPixmap(QPixmap.fromImage(scaled))
+
+    @staticmethod
+    def _decode_size(source_size: QSize, target_size: QSize, rotated: bool) -> QSize:
+        oriented_source = (
+            QSize(source_size.height(), source_size.width()) if rotated else source_size
+        )
+        oriented_result = oriented_source.scaled(target_size, Qt.KeepAspectRatio)
+        if rotated:
+            return QSize(oriented_result.height(), oriented_result.width())
+        return oriented_result
+
+    @staticmethod
+    def _transformation_rotates(
+        transformation: QImageIOHandler.Transformation,
+    ) -> bool:
+        return transformation in {
+            QImageIOHandler.TransformationRotate90,
+            QImageIOHandler.TransformationMirrorAndRotate90,
+            QImageIOHandler.TransformationFlipAndRotate90,
+            QImageIOHandler.TransformationRotate270,
+        }
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
-        self._scale_current_image()
+        self._render_current_image()
+        self._resize_decode_timer.start()
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
-        QTimer.singleShot(0, self._scale_current_image)
+        QTimer.singleShot(0, lambda: self._decode_current_image(force=True))
         QTimer.singleShot(0, self._center_carousel_current)
 
     def _update_controls(self) -> None:
@@ -463,7 +535,7 @@ class FullscreenPhotoDialog(QDialog):
     @Slot(bool)
     def _set_analysis_overlay(self, enabled: bool) -> None:
         self.overlay_enabled = enabled
-        self._scale_current_image()
+        self._render_current_image()
 
     @Slot()
     def _show_toolbar_menu(self) -> None:
@@ -483,6 +555,8 @@ class FullscreenPhotoDialog(QDialog):
         event.accept()
 
     def event(self, event: QEvent) -> bool:
+        if event.type() == QEvent.ScreenChangeInternal:
+            QTimer.singleShot(0, lambda: self._decode_current_image(force=True))
         if event.type() == QEvent.Gesture:
             gesture_event = event
             if isinstance(gesture_event, QGestureEvent):
