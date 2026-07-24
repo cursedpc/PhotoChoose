@@ -239,9 +239,10 @@ photos-per-minute, memory usage, and thermals.
 ### M8 — Windows packaging and field validation
 
 **Implementation status:** the reproducible x64 PyInstaller/Inno Setup build pipeline is present,
-including portable and installed artifacts plus automated install/start/uninstall smoke checks.
-The resulting unsigned installer still requires validation on the exact Windows notebook before
-this milestone can be completed.
+including portable and installed artifacts, automated install/start/uninstall smoke checks, and
+tag-driven publication of the installer, portable ZIP, and checksums under GitHub Releases. The
+resulting unsigned installer still requires validation on the exact Windows notebook before this
+milestone can be completed.
 
 - Produce a signed or locally trusted Windows build.
 - Bundle models and runtimes without network downloads during normal use.
