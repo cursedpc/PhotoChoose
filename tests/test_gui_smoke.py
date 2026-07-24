@@ -278,11 +278,12 @@ class GuiSmokeTests(unittest.TestCase):
                 ),
                 3,
             )
-            self.assertLessEqual(
-                viewer.image_label.pixmap().height(), viewer.image_label.height()
-            )
-            self.assertLessEqual(
-                viewer.image_label.pixmap().width(), viewer.image_label.width()
+            displayed_size = viewer.image_label.pixmap().deviceIndependentSize()
+            self.assertLessEqual(displayed_size.height(), viewer.image_label.height())
+            self.assertLessEqual(displayed_size.width(), viewer.image_label.width())
+            self.assertAlmostEqual(
+                viewer._current_device_pixel_ratio,
+                viewer.image_label.pixmap().devicePixelRatio(),
             )
             self.assertEqual(0, viewer.current_index)
             viewer.next_photo()
