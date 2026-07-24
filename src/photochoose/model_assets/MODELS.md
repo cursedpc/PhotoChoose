@@ -7,6 +7,9 @@
 - License: MIT (`YUNET_LICENSE`)
 - SHA-256: `8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4`
 
+PhotoChoose executes YuNet through OpenVINO CPU. OpenCV DNN is retained as an automatic
+load-time and inference-time fallback.
+
 ## MediaPipe Face Mesh V2 landmarks
 
 - File: `face_landmarks_detector.tflite`
@@ -21,6 +24,8 @@ PhotoChoose computes eye aperture from six eyelid landmarks per eye. Ratios at o
 0.14 are treated as confidently closed, ratios at or above 0.19 as open, and the band
 between them as uncertain. These deliberately conservative thresholds were checked against
 the photographer's local development corpus and should be recalibrated as that corpus grows.
+OpenVINO CPU imports the bundled TFLite graph directly; LiteRT is retained as the automatic
+load-time and inference-time fallback.
 
 ## NanoDet general object detector
 
@@ -32,8 +37,9 @@ the photographer's local development corpus and should be recalibrated as that c
 - Output: COCO-80 object labels and bounding boxes
 - SHA-256: `4b82da9944b88577175ee23a459dce2e26e6e4be573def65b1055dc2d9720186`
 
-PhotoChoose runs NanoDet through OpenCV DNN and measures focus inside each detected
-region. If none of its 80 classes is detected, a model-free spectral-saliency fallback may
+PhotoChoose runs NanoDet through OpenVINO CPU, with OpenCV DNN as an automatic load-time and
+inference-time fallback, and measures focus inside each detected region. If none of its 80
+classes is detected, a model-free spectral-saliency fallback may
 identify one unlabeled prominent region. Saliency-only evidence can influence relative Best
 ranking but cannot independently send a photograph to Review.
 

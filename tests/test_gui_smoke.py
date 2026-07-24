@@ -189,11 +189,11 @@ class GuiSmokeTests(unittest.TestCase):
                 window.inspector.details_label.text(),
             )
             self.assertIn(
-                "Model: yunet+face-mesh-litert",
+                "Model: yunet-openvino-cpu+face-mesh-openvino-cpu",
                 window.inspector.details_label.text(),
             )
             self.assertIn(
-                "Object model: nanodet-opencv",
+                "Object model: nanodet-openvino-cpu",
                 window.inspector.details_label.text(),
             )
             self.assertIn(

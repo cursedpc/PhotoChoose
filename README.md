@@ -120,24 +120,25 @@ consistent on macOS and Windows; platform scaling still requires review on the t
 
 ## Local subject models
 
-All three neural model files are installed with PhotoChoose. YuNet and NanoDet run through
-OpenCV DNN; the face-mesh model runs through LiteRT CPU on the current macOS development machine.
-Analysis does not contact a server or download model files at runtime. If model loading or
-inference fails, PhotoChoose uses its earlier OpenCV Haar face/eye checks and spectral
-saliency fallback, and marks the active backends in the analysis details.
+All three neural model files are installed with PhotoChoose and run through OpenVINO on the CPU.
+Analysis does not contact a server or download model files at runtime. If OpenVINO model loading
+or inference fails, PhotoChoose automatically returns to OpenCV DNN for YuNet and NanoDet and
+LiteRT for face mesh. Its earlier OpenCV Haar face/eye checks and spectral-saliency fallback remain
+available when the neural models cannot provide evidence. Analysis details identify the runtime
+that actually produced each result.
 
-- Face detection and landmarks: OpenCV Zoo YuNet, MIT licensed.
+- Face detection: OpenCV Zoo YuNet, MIT licensed, executed through OpenVINO CPU.
 - Eye state: MediaPipe Face Mesh V2 landmarks, Apache-2.0 licensed, executed locally
-  through LiteRT.
+  through OpenVINO CPU.
 - General objects: OpenCV Zoo NanoDet, Apache-2.0 licensed, executed locally through
-  OpenCV DNN with a model-free saliency fallback.
+  OpenVINO CPU with a model-free saliency fallback.
 - Exact upstream locations, licenses, filenames, and SHA-256 hashes are recorded in
   `src/photochoose/model_assets/MODELS.md`.
 
-YuNet and NanoDet remain ONNX/OpenVINO compatible, while OpenVINO can import the face-mesh
-TFLite model. The current development path is entirely local and CPU-only. OpenVINO CPU will be
-implemented and measured on macOS first, then validated on the target Windows 11 machine. Intel
-GPU and OpenVINO `AUTO` execution are outside the current implementation scope.
+The current inference path is entirely local and CPU-only. OpenVINO CPU is implemented and tested
+for output parity on the macOS development machine; throughput, memory, and thermal validation on
+large shoots remains for the target Windows 11 machine. Intel GPU and OpenVINO `AUTO` execution are
+outside the current implementation scope.
 
 ## Export behavior
 

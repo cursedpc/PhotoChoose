@@ -201,6 +201,16 @@ Tier 1 reduces the number of expensive model evaluations and should run on all p
 
 ### M7A — OpenVINO CPU backend
 
+**Implementation status:** complete on the macOS development machine. The three bundled models
+use the explicit OpenVINO `CPU` device, raw-output parity and automatic fallback are covered by
+tests, and backend names are recorded with analysis results. Large-corpus performance and thermal
+validation remains in M7B for the target Windows notebook.
+
+A small warmed-up development smoke test on synthetic 1600×1200 input measured about 1.12× for
+YuNet and 1.61× for NanoDet relative to their OpenCV paths. Face mesh measured 0.62× relative to
+LiteRT on this Mac, so runtime selection must be revisited with real photographs on the target
+machine; these synthetic figures are implementation diagnostics, not performance acceptance data.
+
 - Implement this milestone on macOS without waiting for the target Windows notebook.
 - Add OpenVINO as a controlled dependency and align the supported Python version with its runtime.
 - Introduce a common inference-backend interface rather than coupling analysis code to one runtime.
@@ -332,9 +342,9 @@ Real threshold tuning and performance validation are deliberately deferred until
 large shoots can run on the target machine. Eye visibility is now separated from eyelid geometry:
 small, dark/covered, glare-clipped, or low-detail eye regions become explicit obscured/unresolved
 evidence rather than closed-eye claims. Older analyses are marked stale under the new version
-without changing decisions. The next implementation slice is the CPU-only OpenVINO backend, which
-can be built and validated on macOS now. GPU and `AUTO` execution are explicitly outside the current
-scope.
+without changing decisions. The CPU-only OpenVINO backend is now implemented and locally verified
+on macOS. GPU and `AUTO` execution are explicitly outside the current scope; large-shoot validation
+remains deferred to the target Windows machine.
 
 The desktop interface is organized as a modern three-zone studio workspace: a library
 rail, a distraction-free photographic canvas, and a contextual inspector. Infrequent project
@@ -367,7 +377,7 @@ group. RAW/JPEG/XMP sets are now one logical photograph, RAW-only files use cach
 JPEG previews when available, and complete file sets export together. Closing a project
 releases its generated RAW previews without discarding catalog metadata or decisions.
 Broader RAW preview validation, stronger subject analysis, and calibration remain on the mainline
-roadmap. CPU-only OpenVINO is the next backend milestone; Windows CPU validation and packaging
-follow on the target machine. Subject evidence is now stored per face
+roadmap. CPU-only OpenVINO now drives the bundled models with legacy-runtime fallback; Windows CPU
+validation and packaging follow on the target machine. Subject evidence is now stored per face
 and eye and can be overlaid in all culling views; burst ranking uses the weakest primary
 face/eye sharpness rather than allowing a tiny background face to dominate.
