@@ -121,6 +121,7 @@ class GuiSmokeTests(unittest.TestCase):
             app = create_application(["photochoose-test"], root / "state.sqlite3")
             window = app.main_window
             self.assertIn("workspaceSurface", app.styleSheet())
+            self.assertFalse(app.windowIcon().isNull())
             library = window.findChild(QFrame, "libraryRail")
             self.assertIsNotNone(library)
             self.assertEqual(1, len(library.findChildren(QPushButton)))
