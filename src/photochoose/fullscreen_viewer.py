@@ -26,6 +26,7 @@ from PySide6.QtGui import (
     QPen,
     QPixmap,
     QResizeEvent,
+    QShortcut,
     QShowEvent,
     QWheelEvent,
 )
@@ -254,6 +255,13 @@ class FullscreenPhotoDialog(QDialog):
         self.carousel.clicked.connect(self._carousel_clicked)
         filmstrip_layout.addWidget(self.carousel)
         layout.addWidget(filmstrip)
+
+        self.previous_shortcut = QShortcut(Qt.Key_Left, self)
+        self.previous_shortcut.setContext(Qt.WindowShortcut)
+        self.previous_shortcut.activated.connect(self.previous_photo)
+        self.next_shortcut = QShortcut(Qt.Key_Right, self)
+        self.next_shortcut.setContext(Qt.WindowShortcut)
+        self.next_shortcut.activated.connect(self.next_photo)
         self._show_current_photo()
 
     @property
@@ -506,10 +514,10 @@ class FullscreenPhotoDialog(QDialog):
         if key == Qt.Key_Escape:
             self.close()
             return
-        if key in (Qt.Key_Right, Qt.Key_D, Qt.Key_Space):
+        if key == Qt.Key_Space:
             self.next_photo()
             return
-        if key in (Qt.Key_Left, Qt.Key_A, Qt.Key_Backspace):
+        if key == Qt.Key_Backspace:
             self.previous_photo()
             return
         if key == Qt.Key_K:

@@ -291,6 +291,15 @@ class GuiSmokeTests(unittest.TestCase):
                 1,
                 viewer.carousel_model.photo_row(viewer.carousel.currentIndex()),
             )
+            viewer.next_button.setFocus()
+            QTest.keyClick(viewer.next_button, Qt.Key_Left)
+            self.assertEqual(0, viewer.current_index)
+            viewer.previous_button.setFocus()
+            QTest.keyClick(viewer.previous_button, Qt.Key_Right)
+            self.assertEqual(1, viewer.current_index)
+            QTest.keyClick(viewer, Qt.Key_A)
+            QTest.keyClick(viewer, Qt.Key_D)
+            self.assertEqual(1, viewer.current_index)
             QTest.keyClick(viewer, Qt.Key_Left)
             self.assertEqual(0, viewer.current_index)
             QTest.keyClick(viewer, Qt.Key_R)
