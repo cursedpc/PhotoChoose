@@ -5,6 +5,8 @@ from typing import Dict, Optional, Sequence, Tuple
 
 import numpy as np
 
+CPU_COMPILE_CONFIG = {"INFERENCE_PRECISION_HINT": "f32"}
+
 
 class InferenceBackendError(RuntimeError):
     """A recoverable model-loading or inference failure."""
@@ -67,7 +69,11 @@ class OpenVINOCPUBackend:
             model = self._core.read_model(str(model_path))
             if input_shape is not None:
                 model.reshape({model.input(0): tuple(input_shape)})
-            compiled_model = self._core.compile_model(model, self.device_name)
+            compiled_model = self._core.compile_model(
+                model,
+                self.device_name,
+                CPU_COMPILE_CONFIG,
+            )
         except Exception as exc:
             raise InferenceBackendError(
                 "Could not compile {0} for OpenVINO CPU: {1}".format(
