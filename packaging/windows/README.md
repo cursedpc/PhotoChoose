@@ -1,7 +1,7 @@
 # Windows packaging
 
-PhotoChoose is built as an x64 PyInstaller one-folder application and wrapped in a per-user Inno
-Setup installer. Build on 64-bit Windows with Python 3.11; PyInstaller bundles are specific to the
+PhotoChoose is built as an x64 PyInstaller one-folder application and wrapped in an Inno Setup
+installer. Build on 64-bit Windows with Python 3.11; PyInstaller bundles are specific to the
 operating system that creates them.
 
 ```powershell
@@ -18,18 +18,20 @@ Install Inno Setup, then compile the installer from the repository root:
 
 ```powershell
 & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
-  "/DAppVersion=0.1.2" packaging\windows\photochoose.iss
+  "/DAppVersion=0.1.3" packaging\windows\photochoose.iss
 ```
 
-The installer is written to `release\PhotoChoose-Setup-0.1.2-x64.exe`. It installs under the
-current user's Local AppData and does not require elevation. The catalog database remains under
-`%APPDATA%\PhotoChoose\PhotoChoose` and is intentionally not removed by uninstall.
+The installer is written to `release\PhotoChoose-Setup-0.1.3-x64.exe`. It installs the application
+under `C:\Program Files\PhotoChoose` by default and requests Windows elevation. The destination can
+still be changed in the setup wizard. The catalog database and settings remain under
+`%APPDATA%\PhotoChoose\PhotoChoose` and are intentionally not removed by uninstall.
 
-Running a newer PhotoChoose setup upgrades the existing installation in place. The stable Inno
-Setup `AppId` and `UsePreviousAppDir=yes` reuse the current install directory and uninstall record;
-there is no need to uninstall the earlier release. The catalog and settings live outside the
-application directory and remain untouched. CI installs the setup twice and smoke-tests the
-second installation to protect this upgrade path.
+Version 0.1.3 migrates the earlier per-user application copy from
+`%LOCALAPPDATA%\Programs\PhotoChoose` after the Program Files installation succeeds. The catalog and
+settings live outside either application directory and remain untouched. After migration, the
+stable Inno Setup `AppId` and `UsePreviousAppDir=yes` reuse the Program Files or user-selected
+installation directory. CI installs 0.1.2 first, upgrades it to the new setup, verifies the old
+application copy was removed, and smoke-tests a second in-place installation.
 
 The automated workflow additionally installs the generated setup into a temporary directory,
 starts the installed executable in smoke-test mode, uninstalls it, creates a portable ZIP, and

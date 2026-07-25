@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "0.1.2"
+  #define AppVersion "0.1.3"
 #endif
 
 [Setup]
@@ -8,10 +8,10 @@ AppName=PhotoChoose
 AppVersion={#AppVersion}
 AppVerName=PhotoChoose {#AppVersion}
 AppPublisher=PhotoChoose
-DefaultDirName={localappdata}\Programs\PhotoChoose
+DefaultDirName={autopf}\PhotoChoose
 DefaultGroupName=PhotoChoose
 DisableProgramGroupPage=yes
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\..\release
@@ -40,4 +40,45 @@ Name: "{autoprograms}\PhotoChoose"; Filename: "{app}\PhotoChoose.exe"
 Name: "{autodesktop}\PhotoChoose"; Filename: "{app}\PhotoChoose.exe"; Tasks: desktopicon
 
 [Run]
+Filename: "{code:LegacyUninstaller}"; Parameters: "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"; StatusMsg: "Removing the previous per-user application files…"; Flags: runhidden waituntilterminated skipifdoesntexist; Check: HasLegacyPerUserInstall
 Filename: "{app}\PhotoChoose.exe"; Description: "Launch PhotoChoose"; Flags: nowait postinstall skipifsilent
+
+[Code]
+const
+  LegacyUninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{BD9F71EE-5A25-44FF-AA4A-12D92966E921}_is1';
+
+var
+  LegacyUninstallerPath: String;
+  LegacyExecutablePath: String;
+
+function InitializeSetup: Boolean;
+var
+  LegacyInstallDir: String;
+  UninstallCommand: String;
+begin
+  LegacyUninstallerPath := '';
+  LegacyExecutablePath := '';
+  if RegQueryStringValue(HKCU, LegacyUninstallKey, 'InstallLocation', LegacyInstallDir) then
+    LegacyExecutablePath := AddBackslash(LegacyInstallDir) + 'PhotoChoose.exe';
+  if RegQueryStringValue(HKCU, LegacyUninstallKey, 'UninstallString', UninstallCommand) then
+    LegacyUninstallerPath := RemoveQuotes(Trim(UninstallCommand));
+  if not FileExists(LegacyUninstallerPath) then
+    LegacyUninstallerPath := '';
+  Result := True;
+end;
+
+function LegacyUninstaller(Param: String): String;
+begin
+  Result := LegacyUninstallerPath;
+end;
+
+function HasLegacyPerUserInstall: Boolean;
+begin
+  Result := LegacyUninstallerPath <> '';
+end;
+
+procedure RegisterExtraCloseApplicationsResources;
+begin
+  if FileExists(LegacyExecutablePath) then
+    RegisterExtraCloseApplicationsResource(False, LegacyExecutablePath);
+end;
