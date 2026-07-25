@@ -1,4 +1,4 @@
-name: Windows installer
+name: Windows and Intel macOS release
 
 on:
   workflow_dispatch:
@@ -154,15 +154,6 @@ jobs:
             throw "Uninstall removed the catalog data directory"
           }
 
-      - name: Write SHA-256 checksums
-        shell: pwsh
-        run: |
-          Get-ChildItem release\*.exe, release\*.zip | ForEach-Object {
-            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash  $($_.Name)"
-          } | Out-File release\SHA256SUMS.txt -Encoding ascii
-          Get-Content release\SHA256SUMS.txt
-
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -170,28 +161,132 @@ jobs:
           path: |
             release/PhotoChoose-Setup-*.exe
             release/PhotoChoose-portable-*.zip
-            release/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
 
-      - name: Publish GitHub release
+  build-macos-intel:
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    env:
+      QT_QPA_PLATFORM: offscreen
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Python 3.11 x64
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          architecture: x64
+          cache: pip
+
+      - name: Read application version
+        shell: bash
+        run: |
+          version=$(python -c "import pathlib,tomllib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version'])")
+          echo "APP_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Validate release tag
         if: startsWith(github.ref, 'refs/tags/v')
-        shell: pwsh
+        shell: bash
+        run: |
+          expected_tag="v$APP_VERSION"
+          if [[ "$GITHUB_REF_NAME" != "$expected_tag" ]]; then
+            echo "Release tag '$GITHUB_REF_NAME' does not match application version '$expected_tag'" >&2
+            exit 1
+          fi
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,packaging]"
+
+      - name: Confirm Intel dependency architecture
+        run: |
+          test "$(uname -m)" = "x86_64"
+          python -c "import platform; assert platform.machine() == 'x86_64', platform.machine()"
+
+      - name: Run tests
+        run: python -m unittest discover -s tests
+
+      - name: Build Intel application bundle
+        run: python -m PyInstaller --noconfirm --clean packaging/macos/photochoose.spec
+
+      - name: Prepare unsigned application bundle
+        shell: bash
+        run: |
+          xattr -cr dist/PhotoChoose.app
+          codesign --force --deep --sign - dist/PhotoChoose.app
+          codesign --verify --deep --strict --verbose=2 dist/PhotoChoose.app
+
+      - name: Verify and smoke-test application bundle
+        shell: bash
+        run: |
+          test "$(lipo -archs dist/PhotoChoose.app/Contents/MacOS/PhotoChoose)" = "x86_64"
+          export PHOTOCHOOSE_SMOKE_LOG="$RUNNER_TEMP/photochoose-macos-smoke.log"
+          if ! dist/PhotoChoose.app/Contents/MacOS/PhotoChoose --smoke-test; then
+            test ! -f "$PHOTOCHOOSE_SMOKE_LOG" || cat "$PHOTOCHOOSE_SMOKE_LOG"
+            exit 1
+          fi
+
+      - name: Create unsigned Intel DMG
+        shell: bash
+        run: |
+          mkdir -p release/dmg-root
+          ditto --noextattr --noacl dist/PhotoChoose.app release/dmg-root/PhotoChoose.app
+          ln -s /Applications release/dmg-root/Applications
+          hdiutil create -volname PhotoChoose -srcfolder release/dmg-root -ov -format UDZO \
+            "release/PhotoChoose-$APP_VERSION-macOS-Intel.dmg"
+
+      - name: Verify DMG contents
+        shell: bash
+        run: |
+          mount_point="$RUNNER_TEMP/photochoose-dmg"
+          mkdir -p "$mount_point"
+          hdiutil attach "release/PhotoChoose-$APP_VERSION-macOS-Intel.dmg" \
+            -readonly -nobrowse -mountpoint "$mount_point"
+          test -x "$mount_point/PhotoChoose.app/Contents/MacOS/PhotoChoose"
+          hdiutil detach "$mount_point"
+
+      - name: Upload Intel macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhotoChoose-macOS-Intel-${{ env.APP_VERSION }}
+          path: release/PhotoChoose-*-macOS-Intel.dmg
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - build-windows-installer
+      - build-macos-intel
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download tested release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Write SHA-256 checksums
+        shell: bash
+        run: |
+          cd release
+          sha256sum PhotoChoose-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Publish GitHub release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $assets = @(
-            "release/PhotoChoose-Setup-$env:APP_VERSION-x64.exe"
-            "release/PhotoChoose-portable-$env:APP_VERSION-x64.zip"
-            "release/SHA256SUMS.txt"
-          )
-          gh release view $env:GITHUB_REF_NAME *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $env:GITHUB_REF_NAME $assets --clobber
-          }
-          else {
-            gh release create $env:GITHUB_REF_NAME $assets --verify-tag --generate-notes --latest --title "PhotoChoose $env:APP_VERSION"
-          }
-          if ($LASTEXITCODE -ne 0) {
-            throw "Publishing GitHub release failed with exit code $LASTEXITCODE"
-          }
+          version="${GITHUB_REF_NAME#v}"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" release/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" release/* --verify-tag --generate-notes \
+              --latest --title "PhotoChoose $version"
+          fi

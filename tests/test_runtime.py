@@ -27,6 +27,9 @@ class RuntimeTests(unittest.TestCase):
         version_info = (
             project_root / "packaging/windows/version_info.txt"
         ).read_text(encoding="utf-8")
+        mac_spec = (project_root / "packaging/macos/photochoose.spec").read_text(
+            encoding="utf-8"
+        )
 
         self.assertEqual(project_version, __version__)
         self.assertIn('#define AppVersion "{0}"'.format(project_version), installer)
@@ -34,6 +37,8 @@ class RuntimeTests(unittest.TestCase):
             "StringStruct('ProductVersion', '{0}')".format(project_version),
             version_info,
         )
+        self.assertIn('target_arch="x86_64"', mac_spec)
+        self.assertIn("version=project_version", mac_spec)
 
     def test_windows_installer_separates_program_and_user_data(self) -> None:
         project_root = Path(__file__).parents[1]

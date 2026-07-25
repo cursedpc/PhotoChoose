@@ -12,12 +12,45 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QSettings, Qt  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
+from PySide6.QtWidgets import QWidget  # noqa: E402
 
 from photochoose.app import create_application  # noqa: E402
-from photochoose.onboarding import OnboardingController  # noqa: E402
+from photochoose.onboarding import CoachMarkOverlay, OnboardingController  # noqa: E402
 
 
 class OnboardingTests(unittest.TestCase):
+    def test_hint_card_stays_inside_a_small_host_and_scrolls(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            app = create_application(["photochoose-small-hint-test"], root / "state.sqlite3")
+            host = QWidget()
+            host.resize(320, 190)
+            host.show()
+            overlay = CoachMarkOverlay(
+                host,
+                None,
+                "A responsive guide on every display",
+                "This deliberately long explanation verifies that larger fonts and "
+                "shorter screens never push the guide card outside the visible area. "
+                "Every line remains reachable through the card's vertical scroll area.",
+                "GUIDE  1 / 8",
+            )
+            app.processEvents()
+
+            self.assertTrue(overlay.rect().contains(overlay.card.geometry()))
+            self.assertGreater(
+                overlay.card_scroll.verticalScrollBar().maximum(),
+                0,
+            )
+
+            host.resize(760, 520)
+            QTest.qWait(20)
+            app.processEvents()
+            self.assertTrue(overlay.rect().contains(overlay.card.geometry()))
+            overlay.detach()
+            host.close()
+            app.main_window.close()
+
     def test_guide_is_persistent_and_waits_for_relevant_context(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -36,9 +36,32 @@ from photochoose.app import create_application  # noqa: E402
 from photochoose.fullscreen_viewer import FullscreenPhotoDialog  # noqa: E402
 from photochoose.main_window import _progress_message  # noqa: E402
 from photochoose.models import Decision, PhotoView  # noqa: E402
+from photochoose.selection_inspector import SelectionInspector  # noqa: E402
 
 
 class GuiSmokeTests(unittest.TestCase):
+    def test_inspector_scrolls_all_controls_on_short_displays(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            app = create_application(
+                ["photochoose-inspector-scroll-test"], root / "state.sqlite3"
+            )
+            inspector = SelectionInspector()
+            inspector.resize(310, 340)
+            inspector.toggle_button.setChecked(True)
+            inspector.show()
+            app.processEvents()
+
+            scroll_bar = inspector.panel_scroll.verticalScrollBar()
+            self.assertGreater(scroll_bar.maximum(), 0)
+            scroll_bar.setValue(scroll_bar.maximum())
+            app.processEvents()
+            self.assertEqual(scroll_bar.maximum(), scroll_bar.value())
+            self.assertFalse(inspector.contents.isHidden())
+
+            inspector.close()
+            app.main_window.close()
+
     def test_dropped_folders_are_filtered_and_processed_in_order(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
