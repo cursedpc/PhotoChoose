@@ -5,7 +5,11 @@ import unittest
 import cv2
 import numpy as np
 
-from photochoose.inference_backend import InferenceBackendError, OpenVINOCPUBackend
+from photochoose.inference_backend import (
+    CPU_COMPILE_CONFIG,
+    InferenceBackendError,
+    OpenVINOCPUBackend,
+)
 from photochoose.object_models import (
     OBJECT_MODEL_PATH,
     OBJECT_OUTPUT_NAMES,
@@ -42,6 +46,20 @@ class _UnavailableEyeAnalyzer:
     backend_name = "none"
 
 
+class _RecordingCore:
+    available_devices = ("CPU",)
+
+    def __init__(self) -> None:
+        self.compile_arguments = None
+
+    def read_model(self, _model_path):
+        return object()
+
+    def compile_model(self, model, device_name, config):
+        self.compile_arguments = (model, device_name, config)
+        return object()
+
+
 class OpenVINOCPUBackendTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -51,6 +69,16 @@ class OpenVINOCPUBackendTests(unittest.TestCase):
         self.assertEqual("openvino-cpu", self.backend.name)
         self.assertEqual("CPU", self.backend.device_name)
         self.assertIn("CPU", self.backend.available_devices)
+
+    def test_backend_forces_fp32_on_every_cpu(self) -> None:
+        core = _RecordingCore()
+        backend = OpenVINOCPUBackend(core=core)
+
+        backend.compile_model(OBJECT_MODEL_PATH)
+
+        self.assertEqual("CPU", core.compile_arguments[1])
+        self.assertEqual({"INFERENCE_PRECISION_HINT": "f32"}, CPU_COMPILE_CONFIG)
+        self.assertEqual(CPU_COMPILE_CONFIG, core.compile_arguments[2])
 
     def test_nanodet_outputs_match_legacy_opencv(self) -> None:
         random = np.random.default_rng(2026)
