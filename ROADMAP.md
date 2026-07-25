@@ -369,6 +369,13 @@ If a decision removes the active photo from the current filtered view, the neare
 is selected instead of leaving the workflow without focus. GUI regression coverage exercises
 single selection, multi-selection, All, and decision-filtered views.
 
+### Keyboard-layout-independent shortcuts
+
+**UI-02 implemented:** the single-letter culling shortcuts (`B`, `K`, `R`, `X`, `U`, and `O`)
+use their physical Windows scan codes in the grid and fullscreen viewer, so changing the active
+keyboard language does not disable them. Left/Right navigation and normal text-entry controls
+remain unaffected, with GUI regression coverage for both Latin and non-Latin key events.
+
 ## Current implementation status
 
 The working prototype now exceeds the first slice: it scans and analyzes in background

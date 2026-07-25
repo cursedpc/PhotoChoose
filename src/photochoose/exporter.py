@@ -18,7 +18,7 @@ class ExportResult:
 
 
 class ProjectExporter:
-    """Copy project decisions without modifying source photos or existing exports."""
+    """Copy folder decisions without modifying source photos or existing exports."""
 
     def __init__(self, database: PhotoDatabase) -> None:
         self.database = database
@@ -31,7 +31,7 @@ class ProjectExporter:
     ) -> ExportResult:
         project = self.database.get_project(project_id)
         if project is None:
-            raise ValueError("Unknown project id: {0}".format(project_id))
+            raise ValueError("Unknown folder id: {0}".format(project_id))
 
         source_root = Path(project.root_path).resolve()
         destination = Path(destination).expanduser().resolve()
