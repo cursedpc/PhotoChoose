@@ -288,7 +288,7 @@ class PhotoDatabase:
     def add_project(self, root_path: Path) -> Project:
         root = Path(root_path).expanduser().resolve()
         if not root.is_dir():
-            raise ValueError("Project path is not a directory: {0}".format(root))
+            raise ValueError("Folder path is not a directory: {0}".format(root))
 
         with closing(self._connect()) as connection:
             connection.execute(
@@ -332,7 +332,7 @@ class PhotoDatabase:
         return self._project_from_row(row) if row else None
 
     def close_project(self, project_id: int) -> Tuple[int, int]:
-        """Hide a project and release only its regenerable RAW preview cache."""
+        """Hide a folder and release only its regenerable RAW preview cache."""
 
         with closing(self._connect()) as connection:
             rows = connection.execute(
@@ -378,11 +378,11 @@ class PhotoDatabase:
     ) -> int:
         project = self.get_project(project_id)
         if project is None:
-            raise ValueError("Unknown project id: {0}".format(project_id))
+            raise ValueError("Unknown folder id: {0}".format(project_id))
 
         root = Path(project.root_path)
         if not root.is_dir():
-            raise ValueError("Project folder is unavailable: {0}".format(root))
+            raise ValueError("Photo folder is unavailable: {0}".format(root))
 
         with closing(self._connect()) as connection:
             existing_rows = connection.execute(
@@ -924,7 +924,7 @@ class PhotoDatabase:
                 "SELECT analysis_profile FROM projects WHERE id = ?", (project_id,)
             ).fetchone()
             if row is None:
-                raise ValueError("Unknown project id: {0}".format(project_id))
+                raise ValueError("Unknown folder id: {0}".format(project_id))
             if row["analysis_profile"] == selected.key:
                 return
             connection.execute(
@@ -960,7 +960,7 @@ class PhotoDatabase:
                 (count, project_id),
             )
             if result.rowcount == 0:
-                raise ValueError("Unknown project id: {0}".format(project_id))
+                raise ValueError("Unknown folder id: {0}".format(project_id))
             connection.commit()
         return self.select_automatic_best(project_id, count)
 

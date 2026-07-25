@@ -161,7 +161,7 @@ def build_calibration_report(
 ) -> CalibrationReport:
     project = database.get_project(project_id)
     if project is None:
-        raise ValueError("Unknown project id: {0}".format(project_id))
+        raise ValueError("Unknown folder id: {0}".format(project_id))
     actions = database.list_manual_overrides(project_id)
     decision_actions = [item for item in actions if item["action_type"] == "decision"]
     best_actions = [item for item in actions if item["action_type"] == "best"]

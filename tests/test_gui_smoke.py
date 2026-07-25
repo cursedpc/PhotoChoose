@@ -5,14 +5,29 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import cv2
 import numpy as np
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QItemSelectionModel, QMimeData, QPoint, Qt, QUrl  # noqa: E402
-from PySide6.QtGui import QColor, QDragEnterEvent, QDragLeaveEvent  # noqa: E402
+from PySide6.QtCore import (  # noqa: E402
+    QEvent,
+    QItemSelectionModel,
+    QMimeData,
+    QPoint,
+    QPointF,
+    Qt,
+    QUrl,
+)
+from PySide6.QtGui import (  # noqa: E402
+    QColor,
+    QDragEnterEvent,
+    QDragLeaveEvent,
+    QKeyEvent,
+    QWheelEvent,
+)
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QFrame, QListView, QPushButton  # noqa: E402
 
@@ -29,6 +44,10 @@ class GuiSmokeTests(unittest.TestCase):
             root = Path(temporary)
             app = create_application(["photochoose-drop-test"], root / "state.sqlite3")
             window = app.main_window
+            self.assertEqual(
+                "clsid:0AC0837C-BBF8-452A-850D-79D08E667CA7",
+                window._photo_source_start_url("win32").toString(),
+            )
             self.assertTrue(window.acceptDrops())
             self.assertFalse(window.photo_grid.acceptDrops())
             first = root / "First shoot"
@@ -200,9 +219,16 @@ class GuiSmokeTests(unittest.TestCase):
             self.assertIsNotNone(library)
             self.assertEqual(1, len(library.findChildren(QPushButton)))
             self.assertEqual(
-                ["File", "Project", "Photo", "View"],
+                ["File", "Folder", "Photo", "View", "Help"],
                 [action.text() for action in window.menuBar().actions()],
             )
+            self.assertEqual("Show hints", window.show_hints_action.text())
+            self.assertFalse(window.folder_menu.menuAction().isEnabled())
+            self.assertFalse(window.photo_menu.menuAction().isEnabled())
+            self.assertFalse(window.view_menu.menuAction().isEnabled())
+            self.assertFalse(window.view_tabs.isEnabled())
+            self.assertFalse(window.photo_grid.isEnabled())
+            self.assertEqual("No folder selected", window.project_title.text())
             shoot = root / "Wedding"
             shoot.mkdir()
             for index, color in enumerate(("#b14c45", "#4d7fb8", "#678f5a")):
@@ -227,6 +253,17 @@ class GuiSmokeTests(unittest.TestCase):
             self.assertFalse(window.busy_projects, "automatic scan and analysis timed out")
             self.assertEqual(1, window.project_list.count())
             self.assertEqual(3, window.photo_model.rowCount())
+            app.processEvents()
+            required_tab_width = sum(
+                window.view_tabs.tabRect(index).width()
+                for index in range(window.view_tabs.count())
+            )
+            self.assertGreaterEqual(window.view_tabs.width(), required_tab_width)
+            for index in range(1, window.view_tabs.count()):
+                self.assertGreaterEqual(
+                    window.view_tabs.tabRect(index).left(),
+                    window.view_tabs.tabRect(index - 1).right(),
+                )
             analyzed = window.database.list_photos(project.id, PhotoView.ALL)
             self.assertTrue(all(photo.analysis_status == "complete" for photo in analyzed))
             self.assertEqual("safe", window.current_project.analysis_profile)
@@ -272,7 +309,7 @@ class GuiSmokeTests(unittest.TestCase):
                 window.inspector.details_label.text(),
             )
             self.assertIn(
-                "Analyze and separate",
+                "Reanalyze",
                 [action.text() for action in window._project_context_menu().actions()],
             )
             self.assertIn(
@@ -354,8 +391,12 @@ class GuiSmokeTests(unittest.TestCase):
                 3,
             )
             displayed_size = viewer.image_label.pixmap().deviceIndependentSize()
-            self.assertLessEqual(displayed_size.height(), viewer.image_label.height())
-            self.assertLessEqual(displayed_size.width(), viewer.image_label.width())
+            self.assertLessEqual(
+                displayed_size.height(), viewer.image_scroll.viewport().height()
+            )
+            self.assertLessEqual(
+                displayed_size.width(), viewer.image_scroll.viewport().width()
+            )
             self.assertAlmostEqual(
                 viewer._current_device_pixel_ratio,
                 viewer.image_label.pixmap().devicePixelRatio(),
@@ -378,6 +419,56 @@ class GuiSmokeTests(unittest.TestCase):
             self.assertEqual(1, viewer.current_index)
             QTest.keyClick(viewer, Qt.Key_Left)
             self.assertEqual(0, viewer.current_index)
+            fullscreen_pixmap_key = viewer.image_label.pixmap().cacheKey()
+            viewer.zoom_slider.setValue(200)
+            app.processEvents()
+            self.assertEqual(200, viewer.zoom_percent)
+            self.assertEqual(
+                fullscreen_pixmap_key, viewer.image_label.pixmap().cacheKey()
+            )
+            self.assertTrue(
+                viewer.image_scroll.horizontalScrollBar().maximum() > 0
+                or viewer.image_scroll.verticalScrollBar().maximum() > 0
+            )
+            horizontal_scroll = viewer.image_scroll.horizontalScrollBar()
+            vertical_scroll = viewer.image_scroll.verticalScrollBar()
+            pan_before = (horizontal_scroll.value(), vertical_scroll.value())
+            pan_start = viewer.image_scroll.viewport().rect().center()
+            QTest.mousePress(
+                viewer.image_scroll.viewport(), Qt.LeftButton, pos=pan_start
+            )
+            QTest.mouseMove(
+                viewer.image_scroll.viewport(), pan_start - QPoint(24, 18), delay=10
+            )
+            QTest.mouseRelease(
+                viewer.image_scroll.viewport(),
+                Qt.LeftButton,
+                pos=pan_start - QPoint(24, 18),
+            )
+            self.assertNotEqual(
+                pan_before, (horizontal_scroll.value(), vertical_scroll.value())
+            )
+            zoom_before_wheel = viewer.zoom_slider.value()
+            wheel = QWheelEvent(
+                QPointF(10, 10),
+                QPointF(10, 10),
+                QPoint(),
+                QPoint(0, 120),
+                Qt.NoButton,
+                Qt.ControlModifier,
+                Qt.NoScrollPhase,
+                False,
+            )
+            viewer.image_scroll.wheelEvent(wheel)
+            QTest.qWait(20)
+            app.processEvents()
+            self.assertGreater(viewer.zoom_slider.value(), zoom_before_wheel)
+            viewer.zoom_slider.setValue(100)
+            viewer._adjust_zoom(1.004)
+            self.assertEqual(100, viewer.zoom_slider.value())
+            viewer._adjust_zoom(1.004)
+            self.assertEqual(101, viewer.zoom_slider.value())
+            viewer.zoom_slider.setValue(100)
             for key, expected_decision in (
                 (Qt.Key_K, Decision.KEEP),
                 (Qt.Key_R, Decision.REVIEW),
@@ -392,6 +483,21 @@ class GuiSmokeTests(unittest.TestCase):
                         expected_decision.value.title()
                     )
                 )
+            viewer.activateWindow()
+            app.processEvents()
+            non_latin_keep = QKeyEvent(
+                QEvent.KeyPress,
+                ord("Л"),
+                Qt.NoModifier,
+                0x25,
+                0,
+                0,
+                "л",
+            )
+            with patch("photochoose.keyboard_shortcuts.sys.platform", "win32"):
+                app.sendEvent(viewer.menu_button, non_latin_keep)
+            refreshed = window.database.list_photos(project.id, PhotoView.ALL)
+            self.assertEqual(Decision.KEEP, refreshed[0].decision)
             viewer.next_button.setFocus()
             was_best = refreshed[0].is_best
             QTest.keyClick(viewer.next_button, Qt.Key_B)
@@ -421,13 +527,40 @@ class GuiSmokeTests(unittest.TestCase):
                 window.comparison_dialog.left_pane.photo.id,
                 window.comparison_dialog.right_pane.photo.id,
             )
+            comparison_pixmap_key = (
+                window.comparison_dialog.left_pane.image_label.pixmap().cacheKey()
+            )
             window.comparison_dialog.zoom_slider.setValue(150)
+            self.assertEqual(
+                comparison_pixmap_key,
+                window.comparison_dialog.left_pane.image_label.pixmap().cacheKey(),
+            )
             QTest.keyClick(window.comparison_dialog, Qt.Key_O)
             self.assertTrue(window.comparison_dialog.left_pane.overlay_enabled)
             app.processEvents()
             self.assertFalse(
                 window.comparison_dialog.left_pane.image_label.pixmap().isNull()
             )
+            comparison_zoom = window.comparison_dialog.zoom_slider.value()
+            comparison_wheel = QWheelEvent(
+                QPointF(10, 10),
+                QPointF(10, 10),
+                QPoint(),
+                QPoint(0, 120),
+                Qt.NoButton,
+                Qt.ControlModifier,
+                Qt.NoScrollPhase,
+                False,
+            )
+            window.comparison_dialog.left_pane.scroll_area.wheelEvent(
+                comparison_wheel
+            )
+            QTest.qWait(20)
+            app.processEvents()
+            self.assertGreater(
+                window.comparison_dialog.zoom_slider.value(), comparison_zoom
+            )
+            app.processEvents()
             compared_photo_id = window.comparison_dialog.left_pane.photo.id
             window.comparison_dialog._set_decision(compared_photo_id, Decision.KEEP)
             updated = window.database.list_photos(project.id, PhotoView.ALL)
@@ -459,7 +592,11 @@ class GuiSmokeTests(unittest.TestCase):
             app.processEvents()
             self.assertIsNone(window.fullscreen_dialog)
 
-            window._close_current_project()
+            window.show()
+            window.activateWindow()
+            window.project_list.setFocus()
+            app.processEvents()
+            QTest.keyClick(window.project_list, Qt.Key_Delete)
             self.assertEqual(0, window.project_list.count())
             self.assertEqual(0, window.photo_model.rowCount())
             reopened = window.database.add_project(shoot)

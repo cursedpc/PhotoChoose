@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import time
 from pathlib import Path
 from typing import Optional
@@ -13,6 +14,7 @@ from PySide6.QtCore import (
     Qt,
     QThreadPool,
     QTimer,
+    QUrl,
     Signal,
     Slot,
 )
@@ -23,6 +25,7 @@ from PySide6.QtGui import (
     QDragMoveEvent,
     QDropEvent,
     QKeySequence,
+    QShortcut,
 )
 from PySide6.QtWidgets import (
     QComboBox,
@@ -37,6 +40,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QSplitter,
     QStackedLayout,
@@ -55,7 +59,9 @@ from photochoose.comparison_viewer import GroupComparisonDialog
 from photochoose.database import PhotoDatabase
 from photochoose.exporter import ProjectExporter
 from photochoose.fullscreen_viewer import FullscreenPhotoDialog
+from photochoose.keyboard_shortcuts import LayoutIndependentShortcutFilter
 from photochoose.models import Decision, PhotoView, Project
+from photochoose.onboarding import OnboardingController
 from photochoose.photo_delegate import GRID_SIZE, PhotoDelegate
 from photochoose.selection_inspector import SelectionInspector
 from photochoose.thumbnail_model import THUMBNAIL_SIZE, PhotoListModel
@@ -203,19 +209,20 @@ class MainWindow(QMainWindow):
         self._build_menus()
         self._install_shortcuts()
         self._load_projects()
+        self.onboarding = OnboardingController(self)
 
     def _create_project_actions(self) -> None:
         self.add_project_action = QAction("Add shoot folder…", self)
         self.add_project_action.triggered.connect(self._choose_project_folder)
         self.rescan_button = QAction("Rescan folder", self)
         self.rescan_button.triggered.connect(self._rescan_current_project)
-        self.analyze_action = QAction("Analyze and separate", self)
+        self.analyze_action = QAction("Reanalyze", self)
         self.analyze_action.triggered.connect(self._analyze_current_project)
         self.calibration_button = QAction("Calibration report…", self)
         self.calibration_button.triggered.connect(self._open_calibration_report)
         self.export_button = QAction("Export Keep + Best…", self)
         self.export_button.triggered.connect(self._choose_export_folder)
-        self.close_project_button = QAction("Close project", self)
+        self.close_project_button = QAction("Close folder", self)
         self.close_project_button.triggered.connect(self._close_current_project)
         for action in (
             self.rescan_button,
@@ -275,12 +282,12 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.project_list, 1)
 
         layout.addSpacing(6)
-        add_button = QPushButton("Add shoot…")
-        add_button.setObjectName("addShootButton")
-        add_button.setProperty("kind", "quiet")
-        add_button.setToolTip("Add a folder as a new private photo project")
-        add_button.clicked.connect(self._choose_project_folder)
-        layout.addWidget(add_button)
+        self.add_shoot_button = QPushButton("Add shoot…")
+        self.add_shoot_button.setObjectName("addShootButton")
+        self.add_shoot_button.setProperty("kind", "quiet")
+        self.add_shoot_button.setToolTip("Add a private photo folder")
+        self.add_shoot_button.clicked.connect(self._choose_project_folder)
+        layout.addWidget(self.add_shoot_button)
         return sidebar
 
     def _build_photo_workspace(self) -> QWidget:
@@ -299,19 +306,19 @@ class MainWindow(QMainWindow):
         title_row.setSpacing(8)
         title_block = QVBoxLayout()
         title_block.setSpacing(2)
-        self.project_title = QLabel("No project selected")
+        self.project_title = QLabel("No folder selected")
         self.project_title.setObjectName("projectTitle")
         title_block.addWidget(self.project_title)
-        self.project_path = QLabel("Select a project from the library")
+        self.project_path = QLabel("Select a folder from the library")
         self.project_path.setObjectName("projectPath")
         self.project_path.setTextInteractionFlags(Qt.TextSelectableByMouse)
         title_block.addWidget(self.project_path)
         title_row.addLayout(title_block, 1)
 
-        self.analyze_button = QPushButton("Analyze")
+        self.analyze_button = QPushButton("Reanalyze")
         self.analyze_button.setProperty("kind", "primary")
         self.analyze_button.setToolTip(
-            "Refresh metadata, then classify this project entirely on this computer"
+            "Refresh metadata, then classify this folder entirely on this computer"
         )
         self.analyze_button.clicked.connect(self._analyze_current_project)
         self.analyze_button.setEnabled(False)
@@ -345,10 +352,13 @@ class MainWindow(QMainWindow):
         self.view_tabs.setExpanding(False)
         self.view_tabs.setDocumentMode(True)
         self.view_tabs.setDrawBase(False)
+        self.view_tabs.setUsesScrollButtons(False)
+        self.view_tabs.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
         for view in VIEWS:
             self.view_tabs.addTab(view.value.title())
         self.view_tabs.currentChanged.connect(self._view_changed)
         navigation_layout.addWidget(self.view_tabs)
+        self.workspace_navigation_layout = navigation_layout
         navigation_layout.addStretch(1)
         self.count_label = QLabel("0 photos")
         self.count_label.setObjectName("mutedLabel")
@@ -409,7 +419,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(12, 9, 12, 10)
         layout.setSpacing(7)
 
-        label = QLabel("Project settings")
+        label = QLabel("Folder settings")
         label.setObjectName("eyebrow")
         layout.addWidget(label)
 
@@ -483,38 +493,46 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.export_button)
         file_menu.addAction(self.close_project_button)
 
-        project_menu = self.menuBar().addMenu("Project")
-        project_menu.addAction(self.analyze_action)
-        project_menu.addAction(self.rescan_button)
-        project_menu.addSeparator()
-        project_menu.addAction(self.calibration_button)
+        self.folder_menu = self.menuBar().addMenu("Folder")
+        self.folder_menu.addAction(self.analyze_action)
+        self.folder_menu.addAction(self.rescan_button)
+        self.folder_menu.addSeparator()
+        self.folder_menu.addAction(self.calibration_button)
 
-        photo_menu = self.menuBar().addMenu("Photo")
+        self.photo_menu = self.menuBar().addMenu("Photo")
         for text, handler in (
             ("Keep    K", lambda: self._set_decision(Decision.KEEP)),
             ("Review    R", lambda: self._set_decision(Decision.REVIEW)),
             ("Reject    X", lambda: self._set_decision(Decision.REJECT)),
             ("Clear decision    U", lambda: self._set_decision(Decision.UNREVIEWED)),
         ):
-            photo_menu.addAction(text).triggered.connect(handler)
-        photo_menu.addSeparator()
-        photo_menu.addAction("Toggle Best    B").triggered.connect(self._toggle_best)
-        photo_menu.addAction("Open fullscreen").triggered.connect(
+            self.photo_menu.addAction(text).triggered.connect(handler)
+        self.photo_menu.addSeparator()
+        self.photo_menu.addAction("Toggle Best    B").triggered.connect(self._toggle_best)
+        self.photo_menu.addAction("Open fullscreen").triggered.connect(
             self._open_selected_fullscreen
         )
-        photo_menu.addAction("Compare group").triggered.connect(
+        self.photo_menu.addAction("Compare group").triggered.connect(
             self._open_selected_comparison
         )
 
-        view_menu = self.menuBar().addMenu("View")
+        self.view_menu = self.menuBar().addMenu("View")
         for index, view in enumerate(VIEWS):
-            view_menu.addAction(view.value.title()).triggered.connect(
+            self.view_menu.addAction(view.value.title()).triggered.connect(
                 lambda _checked=False, selected=index: self.view_tabs.setCurrentIndex(selected)
             )
-        view_menu.addSeparator()
-        view_menu.addAction("Analysis overlay    O").triggered.connect(
+        self.view_menu.addSeparator()
+        self.view_menu.addAction("Analysis overlay    O").triggered.connect(
             self._toggle_analysis_overlay
         )
+
+        self.help_menu = self.menuBar().addMenu("Help")
+        self.show_hints_action = self.help_menu.addAction("Show hints")
+        self.show_hints_action.triggered.connect(self._show_hints)
+
+    @Slot()
+    def _show_hints(self) -> None:
+        self.onboarding.restart()
 
     def _install_shortcuts(self) -> None:
         shortcuts = [
@@ -526,12 +544,32 @@ class MainWindow(QMainWindow):
             ("O", self._toggle_analysis_overlay),
             (QKeySequence.SelectAll, self.photo_grid.selectAll),
         ]
+        self.workspace_shortcut_actions = []
         for key, handler in shortcuts:
             action = QAction(self)
             action.setShortcut(key)
             action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
             action.triggered.connect(handler)
             self.addAction(action)
+            self.workspace_shortcut_actions.append(action)
+
+        self.close_folder_shortcut = QShortcut(
+            QKeySequence(Qt.Key_Delete), self.project_list
+        )
+        self.close_folder_shortcut.setContext(Qt.WidgetWithChildrenShortcut)
+        self.close_folder_shortcut.activated.connect(self._close_current_project)
+
+        self.layout_independent_shortcuts = LayoutIndependentShortcutFilter(
+            self,
+            {
+                "K": lambda: self._set_decision(Decision.KEEP),
+                "R": lambda: self._set_decision(Decision.REVIEW),
+                "X": lambda: self._set_decision(Decision.REJECT),
+                "U": lambda: self._set_decision(Decision.UNREVIEWED),
+                "B": self._toggle_best,
+                "O": self._toggle_analysis_overlay,
+            },
+        )
 
     @Slot(bool)
     def _set_analysis_overlay(self, enabled: bool) -> None:
@@ -565,10 +603,32 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _choose_project_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Choose a shoot folder")
-        if not folder:
+        folder_url = QFileDialog.getExistingDirectoryUrl(
+            self,
+            "Choose a shoot folder or connected device",
+            self._photo_source_start_url(),
+            QFileDialog.ShowDirsOnly,
+        )
+        if folder_url.isEmpty():
             return
-        self._queue_project_folders([Path(folder)])
+        if not folder_url.isLocalFile():
+            QMessageBox.information(
+                self,
+                "Device folder needs a local path",
+                "This device exposes virtual storage rather than a normal folder path. "
+                "Copy the shoot to this computer, or make the device storage available "
+                "as a drive, then add it again.",
+            )
+            return
+        self._queue_project_folders([Path(folder_url.toLocalFile())])
+
+    @staticmethod
+    def _photo_source_start_url(platform: Optional[str] = None) -> QUrl:
+        if (platform or sys.platform) == "win32":
+            # FOLDERID_ComputerFolder: the Windows Shell view containing disks,
+            # connected phones, cameras, and other portable devices.
+            return QUrl("clsid:0AC0837C-BBF8-452A-850D-79D08E667CA7")
+        return QUrl.fromLocalFile(str(Path.home()))
 
     @staticmethod
     def _folders_from_mime_data(mime_data: QMimeData) -> list[Path]:
@@ -698,6 +758,8 @@ class MainWindow(QMainWindow):
         self._update_best_count_control()
         self._update_project_action_buttons()
         self._refresh_photos()
+        if hasattr(self, "onboarding"):
+            self.onboarding.notify_context_changed()
 
     @Slot(int)
     def _analysis_profile_changed(self, index: int) -> None:
@@ -714,7 +776,7 @@ class MainWindow(QMainWindow):
         self._update_analysis_profile_controls()
         self._refresh_photos()
         self.statusBar().showMessage(
-            "{0} profile selected · click Analyze and separate to apply it".format(
+            "{0} profile selected · click Reanalyze to apply it".format(
                 self.analysis_profile_combo.currentText()
             ),
             10000,
@@ -791,7 +853,7 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         rescan = menu.addAction("Rescan folder")
         rescan.triggered.connect(self._rescan_current_project)
-        analyze = menu.addAction("Analyze and separate")
+        analyze = menu.addAction("Reanalyze")
         analyze.triggered.connect(self._analyze_current_project)
         calibration = menu.addAction("Calibration report…")
         calibration.triggered.connect(self._open_calibration_report)
@@ -883,7 +945,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Nothing to analyze",
-                "This project has no supported indexed photos. Rescan it first.",
+                "This folder has no supported indexed photos. Rescan it first.",
             )
             return
         self.busy_projects.add(project.id)
@@ -1013,6 +1075,8 @@ class MainWindow(QMainWindow):
         dialog.finished.connect(self._fullscreen_closed)
         self.fullscreen_dialog = dialog
         dialog.showFullScreen()
+        if hasattr(self, "onboarding"):
+            self.onboarding.notify_context_changed()
 
     @Slot(int)
     def _fullscreen_closed(self, _result: int) -> None:
@@ -1111,6 +1175,8 @@ class MainWindow(QMainWindow):
         dialog.finished.connect(self._comparison_closed)
         self.comparison_dialog = dialog
         dialog.showMaximized()
+        if hasattr(self, "onboarding"):
+            self.onboarding.notify_context_changed()
 
     @Slot(int)
     def _comparison_closed(self, _result: int) -> None:
@@ -1130,7 +1196,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Nothing to export",
-                "This project has no Keep or Best photographs yet.",
+                "This folder has no Keep or Best photographs yet.",
             )
             return
         folder = QFileDialog.getExistingDirectory(self, "Choose export destination")
@@ -1176,9 +1242,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Export failed", 5000)
 
     def _update_project_action_buttons(self) -> None:
-        enabled = (
-            self.current_project is not None and self.current_project.id not in self.busy_projects
-        )
+        has_folder = self.current_project is not None
+        enabled = has_folder and self.current_project.id not in self.busy_projects
         self.rescan_button.setEnabled(enabled)
         self.analyze_button.setEnabled(enabled)
         self.analyze_action.setEnabled(enabled)
@@ -1188,11 +1253,20 @@ class MainWindow(QMainWindow):
         self.project_options_button.setEnabled(enabled)
         self.analysis_profile_combo.setEnabled(enabled)
         self.best_count_spin.setEnabled(enabled)
+        self.folder_menu.menuAction().setEnabled(has_folder)
+        self.photo_menu.menuAction().setEnabled(has_folder)
+        self.view_menu.menuAction().setEnabled(has_folder)
+        self.view_tabs.setEnabled(has_folder)
+        self.photo_grid.setEnabled(has_folder)
+        self.inspector.toggle_button.setEnabled(has_folder)
+        self.close_folder_shortcut.setEnabled(enabled)
+        for action in self.workspace_shortcut_actions:
+            action.setEnabled(has_folder)
 
     def _clear_current_project(self) -> None:
         self.current_project = None
-        self.project_title.setText("No project selected")
-        self.project_path.setText("Select a project from the library")
+        self.project_title.setText("No folder selected")
+        self.project_path.setText("Select a folder from the library")
         self.setWindowTitle("PhotoChoose")
         self.analysis_profile_combo.setEnabled(False)
         self.best_count_spin.blockSignals(True)
@@ -1211,6 +1285,7 @@ class MainWindow(QMainWindow):
         self.inspector.set_photos([], 0)
         for index, view in enumerate(VIEWS):
             self.view_tabs.setTabText(index, view.value.title())
+        self._stabilize_view_tabs()
         self.rescan_button.setEnabled(False)
         self.analyze_button.setEnabled(False)
         self.analyze_action.setEnabled(False)
@@ -1218,6 +1293,7 @@ class MainWindow(QMainWindow):
         self.export_button.setEnabled(False)
         self.close_project_button.setEnabled(False)
         self.project_options_button.setEnabled(False)
+        self._update_project_action_buttons()
 
     def _selected_photo_ids(self):
         indexes = self.photo_grid.selectionModel().selectedIndexes()
@@ -1266,7 +1342,7 @@ class MainWindow(QMainWindow):
         else:
             self.empty_title.setText("Nothing in this view")
             self.empty_hint.setText(
-                "Try another filter, or use Project → Rescan if files were added."
+                "Try another filter, or use Folder → Rescan if files were added."
             )
             self.canvas_stack.setCurrentIndex(0)
 
@@ -1326,6 +1402,8 @@ class MainWindow(QMainWindow):
                     active_id,
                 ),
             )
+        if hasattr(self, "onboarding"):
+            self.onboarding.notify_context_changed()
 
     def _restore_grid_viewport(
         self,
@@ -1357,6 +1435,19 @@ class MainWindow(QMainWindow):
             label = "{0}  {1}".format(view.value.title(), counts[view.value])
             self.view_tabs.setTabText(index, label)
         self.count_label.setText("{0} photos visible".format(self.photo_model.rowCount()))
+        self._stabilize_view_tabs()
+        QTimer.singleShot(0, self._stabilize_view_tabs)
+
+    def _stabilize_view_tabs(self) -> None:
+        required_width = sum(
+            self.view_tabs.tabRect(index).width()
+            for index in range(self.view_tabs.count())
+        )
+        self.view_tabs.setMinimumWidth(required_width)
+        self.view_tabs.updateGeometry()
+        self.workspace_navigation_layout.invalidate()
+        self.workspace_navigation_layout.activate()
+        self.view_tabs.update()
 
     @Slot()
     def _selection_changed(self, *_args) -> None:
@@ -1372,6 +1463,8 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(
                 "{0} visible · source photos unchanged".format(self.photo_model.rowCount())
             )
+        if hasattr(self, "onboarding"):
+            self.onboarding.notify_context_changed()
 
     def _set_action_buttons_enabled(self, enabled: bool) -> None:
         for button in (

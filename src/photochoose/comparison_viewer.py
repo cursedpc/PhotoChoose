@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QScrollArea,
     QSlider,
     QSplitter,
     QVBoxLayout,
@@ -20,6 +19,7 @@ from PySide6.QtWidgets import (
 from photochoose.analysis_overlay import render_analysis_overlay
 from photochoose.database import PhotoDatabase
 from photochoose.models import Decision, Photo, PhotoView
+from photochoose.zoom_view import ZoomPanScrollArea
 
 
 class ComparisonPane(QFrame):
@@ -41,12 +41,11 @@ class ComparisonPane(QFrame):
         self.heading.setObjectName("panelTitle")
         layout.addWidget(self.heading)
 
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setAlignment(Qt.AlignCenter)
-        self.scroll_area.setWidgetResizable(False)
+        self.scroll_area = ZoomPanScrollArea()
         self.image_label = QLabel()
         self.image_label.setObjectName("fullscreenCanvas")
         self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_label.setScaledContents(True)
         self.scroll_area.setWidget(self.image_label)
         layout.addWidget(self.scroll_area, 1)
 
@@ -118,12 +117,15 @@ class ComparisonPane(QFrame):
         self._load_image(photo.display_path)
 
     def set_zoom(self, zoom_percent: int) -> None:
+        center = self.scroll_area.normalized_center()
         self.zoom_percent = zoom_percent
-        self._render_image()
+        self.scroll_area.set_zoom_percent(zoom_percent)
+        self._resize_image()
+        self.scroll_area.restore_normalized_center(center)
 
     def set_overlay_enabled(self, enabled: bool) -> None:
         self.overlay_enabled = enabled
-        self._render_image()
+        self._refresh_pixmap()
 
     def _load_image(self, path: str) -> None:
         reader = QImageReader(path)
@@ -136,9 +138,19 @@ class ComparisonPane(QFrame):
             self.image_label.setText("Could not load photograph")
             self.image_label.adjustSize()
             return
-        QTimer.singleShot(0, self._render_image)
+        self._refresh_pixmap()
+        self.scroll_area.center_image()
 
-    def _render_image(self) -> None:
+    def _refresh_pixmap(self) -> None:
+        if self.image.isNull():
+            return
+        display_image = self.image
+        if self.overlay_enabled and self.photo is not None:
+            display_image = render_analysis_overlay(display_image, self.photo)
+        self.image_label.setPixmap(QPixmap.fromImage(display_image))
+        self._resize_image()
+
+    def _resize_image(self) -> None:
         if self.image.isNull():
             return
         viewport = self.scroll_area.viewport().size()
@@ -149,18 +161,11 @@ class ComparisonPane(QFrame):
         target = fitted * factor
         target.setWidth(max(1, target.width()))
         target.setHeight(max(1, target.height()))
-        display_image = self.image.scaled(
-            target, Qt.KeepAspectRatio, Qt.SmoothTransformation
-        )
-        if self.overlay_enabled and self.photo is not None:
-            display_image = render_analysis_overlay(display_image, self.photo)
-        pixmap = QPixmap.fromImage(display_image)
-        self.image_label.setPixmap(pixmap)
-        self.image_label.resize(pixmap.size())
+        self.image_label.resize(target)
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
-        QTimer.singleShot(0, self._render_image)
+        QTimer.singleShot(0, self._resize_image)
 
     def _request_decision(self, decision: Decision) -> None:
         if self.photo is not None:
@@ -223,6 +228,8 @@ class GroupComparisonDialog(QDialog):
         self.zoom_slider.setValue(100)
         self.zoom_slider.setFixedWidth(150)
         self.zoom_slider.valueChanged.connect(self._zoom_changed)
+        self._continuous_zoom = 100.0
+        self._gesture_zoom_active = False
         toolbar.addWidget(self.zoom_slider)
         self.zoom_label = QLabel("Fit")
         self.zoom_label.setMinimumWidth(42)
@@ -243,6 +250,7 @@ class GroupComparisonDialog(QDialog):
         for pane in (self.left_pane, self.right_pane):
             pane.decisionRequested.connect(self._set_decision)
             pane.bestRequested.connect(self._toggle_best)
+            pane.scroll_area.zoomFactorRequested.connect(self._adjust_zoom)
             splitter.addWidget(pane)
         splitter.setSizes([640, 640])
         layout.addWidget(splitter, 1)
@@ -290,9 +298,22 @@ class GroupComparisonDialog(QDialog):
 
     @Slot(int)
     def _zoom_changed(self, value: int) -> None:
+        if not self._gesture_zoom_active:
+            self._continuous_zoom = float(value)
         self.zoom_label.setText("Fit" if value == 100 else "{0}%".format(value))
         self.left_pane.set_zoom(value)
         self.right_pane.set_zoom(value)
+
+    @Slot(float)
+    def _adjust_zoom(self, factor: float) -> None:
+        self._continuous_zoom = min(
+            300.0, max(50.0, self._continuous_zoom * factor)
+        )
+        self._gesture_zoom_active = True
+        try:
+            self.zoom_slider.setValue(round(self._continuous_zoom))
+        finally:
+            self._gesture_zoom_active = False
 
     @Slot(bool)
     def _overlay_changed(self, enabled: bool) -> None:
@@ -323,9 +344,9 @@ class GroupComparisonDialog(QDialog):
         self._show_pair()
 
     def _connect_scrollbars(self) -> None:
-        for getter in (QScrollArea.horizontalScrollBar, QScrollArea.verticalScrollBar):
-            left = getter(self.left_pane.scroll_area)
-            right = getter(self.right_pane.scroll_area)
+        for name in ("horizontalScrollBar", "verticalScrollBar"):
+            left = getattr(self.left_pane.scroll_area, name)()
+            right = getattr(self.right_pane.scroll_area, name)()
             left.valueChanged.connect(
                 lambda value, source=left, target=right: self._sync_scroll(
                     source, target, value
