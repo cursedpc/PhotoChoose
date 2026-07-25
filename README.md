@@ -181,20 +181,22 @@ On Windows, create the environment with `py -3.11 -m venv .venv`, then activate 
 `.venv\\Scripts\\activate` before installing and running the application. Confirm the selected
 interpreter with `python -VV`; it must report Python 3.11 before dependencies are installed.
 
-## Windows installer build
+## Windows and Intel macOS release builds
 
-Windows releases use a PyInstaller one-folder application wrapped in a per-user Inno Setup
-installer. The installer does not require administrator rights, and uninstalling it preserves the
+Windows releases use a PyInstaller one-folder application wrapped in an Inno Setup installer under
+Program Files. The installer requests elevation, and uninstalling it preserves the
 PhotoChoose catalog under `%APPDATA%\\PhotoChoose\\PhotoChoose`. The same application folder is
 also emitted as a portable ZIP for target-machine diagnostics.
 
 The build must run on Windows; PyInstaller does not cross-build Windows executables from macOS.
 Version tags and manual workflow runs execute the Windows builder in
-`.github/workflows/windows-installer.yml`. A matching tag such as `v0.1.3` publishes the tested
-installer, portable ZIP, and SHA-256 checksums directly to GitHub Releases. Local Windows build
-instructions are in `packaging/windows/README.md`. To upgrade, download and run the newer setup
-file directly: its stable application identity reuses the existing installation and preserves the
-catalog and settings, so PhotoChoose does not need to be uninstalled first.
+`.github/workflows/windows-installer.yml`. A matching tag such as `v0.1.4` publishes the tested
+installer, portable ZIP, Intel macOS DMG, and SHA-256 checksums directly to GitHub Releases. The
+macOS app is built on GitHub's Intel runner and is intentionally unsigned, so Gatekeeper may
+require Control-click → Open on first launch. Local build instructions are in
+`packaging/windows/README.md` and `packaging/macos/README.md`. To upgrade on Windows, download and
+run the newer setup file directly: its stable application identity reuses the existing installation
+and preserves the catalog and settings, so PhotoChoose does not need to be uninstalled first.
 
 ## Keyboard workflow
 

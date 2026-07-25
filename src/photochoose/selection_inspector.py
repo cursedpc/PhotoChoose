@@ -28,10 +28,25 @@ class SelectionInspector(QFrame):
         self._preview_image = QImage()
         self.setObjectName("inspectorSurface")
 
-        layout = QVBoxLayout(self)
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        self.panel_scroll = QScrollArea()
+        self.panel_scroll.setObjectName("inspectorScroll")
+        self.panel_scroll.setWidgetResizable(True)
+        self.panel_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.panel_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.panel_scroll.setFrameShape(QFrame.NoFrame)
+        root_layout.addWidget(self.panel_scroll)
+
+        panel_body = QWidget()
+        panel_body.setObjectName("inspectorBody")
+        layout = QVBoxLayout(panel_body)
         layout.setContentsMargins(16, 16, 16, 14)
         layout.setSpacing(10)
         layout.setAlignment(Qt.AlignTop)
+        self.panel_scroll.setWidget(panel_body)
 
         header = QHBoxLayout()
         panel_title = QLabel("Inspector")

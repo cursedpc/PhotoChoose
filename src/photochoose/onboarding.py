@@ -6,7 +6,7 @@ from typing import Callable, Optional
 
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QLabel, QScrollArea, QVBoxLayout, QWidget
 
 
 @dataclass(frozen=True)
@@ -41,7 +41,6 @@ class CoachMarkOverlay(QWidget):
 
         self.card = QFrame(self)
         self.card.setObjectName("coachMarkCard")
-        self.card.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         card_layout = QVBoxLayout(self.card)
         card_layout.setContentsMargins(20, 18, 20, 16)
         card_layout.setSpacing(9)
@@ -50,16 +49,31 @@ class CoachMarkOverlay(QWidget):
         progress_label.setObjectName("coachMarkProgress")
         card_layout.addWidget(progress_label)
 
+        self.card_scroll = QScrollArea()
+        self.card_scroll.setObjectName("coachMarkScroll")
+        self.card_scroll.setWidgetResizable(True)
+        self.card_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.card_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.card_scroll.setFrameShape(QFrame.NoFrame)
+
+        self.card_content = QWidget()
+        self.card_content.setObjectName("coachMarkContent")
+        content_layout = QVBoxLayout(self.card_content)
+        content_layout.setContentsMargins(0, 0, 4, 0)
+        content_layout.setSpacing(9)
+
         self.title_label = QLabel(title)
         self.title_label.setObjectName("coachMarkTitle")
         self.title_label.setWordWrap(True)
-        card_layout.addWidget(self.title_label)
+        content_layout.addWidget(self.title_label)
 
         self.body_label = QLabel(body)
         self.body_label.setObjectName("coachMarkBody")
         self.body_label.setWordWrap(True)
         self.body_label.setTextFormat(Qt.PlainText)
-        card_layout.addWidget(self.body_label)
+        content_layout.addWidget(self.body_label)
+        self.card_scroll.setWidget(self.card_content)
+        card_layout.addWidget(self.card_scroll, 1)
 
         continue_label = QLabel("Click anywhere to continue")
         continue_label.setObjectName("coachMarkContinue")
@@ -75,8 +89,23 @@ class CoachMarkOverlay(QWidget):
             " font-weight: 600; }"
             "QLabel#coachMarkBody { color: #d0d2d7; font-size: 13px; }"
             "QLabel#coachMarkContinue { color: #9498a1; font-size: 11px; }"
+            "QScrollArea#coachMarkScroll, QWidget#coachMarkContent {"
+            " background: transparent; border: 0;"
+            "}"
         )
-        self.card.setFixedWidth(400)
+        self.card.setMinimumSize(1, 1)
+        self._dismiss_widgets = (
+            self.card,
+            progress_label,
+            self.card_scroll,
+            self.card_scroll.viewport(),
+            self.card_content,
+            self.title_label,
+            self.body_label,
+            continue_label,
+        )
+        for widget in self._dismiss_widgets:
+            widget.installEventFilter(self)
         self.host.installEventFilter(self)
         if self.target is not None:
             self.target.installEventFilter(self)
@@ -85,8 +114,18 @@ class CoachMarkOverlay(QWidget):
         self.raise_()
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if watched in self._dismiss_widgets and event.type() == QEvent.MouseButtonPress:
+            self.dismissed.emit()
+            return True
         if watched is self.host:
-            if event.type() in (QEvent.Resize, QEvent.Move, QEvent.Show):
+            if event.type() in (
+                QEvent.Resize,
+                QEvent.Move,
+                QEvent.Show,
+                QEvent.LayoutRequest,
+                QEvent.FontChange,
+                QEvent.StyleChange,
+            ):
                 QTimer.singleShot(0, self._sync_geometry)
             elif event.type() in (QEvent.Close, QEvent.Hide):
                 self.abandoned.emit()
@@ -135,11 +174,37 @@ class CoachMarkOverlay(QWidget):
         return target_rect.intersected(self.rect().adjusted(8, 8, -8, -8))
 
     def _position_card(self) -> None:
-        margin = 22
+        margin = min(22, max(6, min(self.width(), self.height()) // 14))
         gap = 16
-        card_size = self.card.sizeHint()
-        card_width = min(400, max(300, self.width() - margin * 2))
+        available_width = max(1, self.width() - margin * 2)
+        available_height = max(1, self.height() - margin * 2)
+        card_width = min(400, available_width)
         self.card.setFixedWidth(card_width)
+
+        card_margins = self.card.layout().contentsMargins()
+        scroll_bar_width = self.card_scroll.verticalScrollBar().sizeHint().width()
+        content_width = max(
+            1,
+            card_width
+            - card_margins.left()
+            - card_margins.right()
+            - scroll_bar_width,
+        )
+        self.card_content.setFixedWidth(content_width)
+        self.card_content.adjustSize()
+
+        fixed_height = (
+            card_margins.top()
+            + card_margins.bottom()
+            + self.card.layout().spacing() * 2
+            + self.card.layout().itemAt(0).widget().sizeHint().height()
+            + self.card.layout().itemAt(2).widget().sizeHint().height()
+        )
+        scroll_height = min(
+            self.card_content.sizeHint().height() + 2,
+            max(1, available_height - fixed_height),
+        )
+        self.card_scroll.setFixedHeight(scroll_height)
         self.card.adjustSize()
         card_size = self.card.size()
 
