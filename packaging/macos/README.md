@@ -29,7 +29,13 @@ hdiutil create -volname PhotoChoose -srcfolder release/dmg-root -ov -format UDZO
 The ad-hoc signature keeps the bundle internally consistent but does not identify or establish trust
 in the developer. The GitHub Actions release workflow performs these steps on an Intel runner and
 publishes the DMG beside the Windows installer. Because the app does not use an Apple Developer ID,
-macOS Gatekeeper
-may require the user to Control-click PhotoChoose, choose **Open**, then confirm **Open** on first
-launch. The application itself belongs in `/Applications`; its catalog remains in the standard
+install it in `/Applications`, then remove the quarantine attribute and launch it once:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/PhotoChoose.app
+open /Applications/PhotoChoose.app
+```
+
+Repeat this only after downloading or replacing the app with a new unsigned build, not on every
+launch. The catalog remains in the standard
 per-user Application Support directory and is not stored inside the app bundle.
