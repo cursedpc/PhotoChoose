@@ -5,6 +5,10 @@ distributed as separate unsigned DMGs. Build each bundle on the matching macOS a
 Python 3.11; PyInstaller does not cross-build macOS applications from Windows or Linux. The spec
 selects `x86_64` or `arm64` from the build machine automatically.
 
+Intel builds retain OpenVINO 2025.4.1 for parity with Windows. Apple Silicon builds use OpenVINO
+2026.1 because the 2025.4 ARM wheels contain TBB libraries that cannot be re-signed by PyInstaller;
+the native tests and frozen smoke test validate the ARM runtime before its DMG is published.
+
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate

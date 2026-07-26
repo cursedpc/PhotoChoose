@@ -15,8 +15,12 @@ dependencies = [
     "numpy>=1.24,<2",
     "opencv-python-headless>=4.8,<4.12",
     "ai-edge-litert>=1.0.1,<3",
-    # 2025.4.1 is the latest release with matching Intel-macOS and Windows wheels.
-    "openvino==2025.4.1",
+    # Keep the validated 2025.4.1 runtime on Intel macOS and Windows. Its ARM64
+    # wheel contains TBB libraries that macOS cannot re-sign during packaging.
+    "openvino==2025.4.1; sys_platform != 'darwin' or platform_machine != 'arm64'",
+    # The 2026.1 ARM64 wheel repairs the core TBB Mach-O signatures. The one
+    # remaining malformed optional topology helper is excluded in the mac spec.
+    "openvino==2026.1.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
 [project.optional-dependencies]
