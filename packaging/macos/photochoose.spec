@@ -37,6 +37,13 @@ hiddenimports = []
 for package in ("openvino", "ai_edge_litert"):
     package_datas, package_binaries, package_hiddenimports = collect_all(package)
     if package == "openvino" and target_arch == "arm64":
+        # collect_all() reports shared libraries in both tables. Filtering only
+        # binaries lets PyInstaller reclassify the data entry during Analysis.
+        package_datas = [
+            data
+            for data in package_datas
+            if Path(data[0]).name not in excluded_arm64_openvino_binaries
+        ]
         package_binaries = [
             binary
             for binary in package_binaries
