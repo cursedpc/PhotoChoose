@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Optional, Sequence
 
-from PySide6.QtCore import QLibraryInfo, QStandardPaths, QTimer
+from PySide6.QtCore import QLibraryInfo, QLockFile, QStandardPaths, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -15,6 +15,7 @@ from photochoose.main_window import MainWindow
 from photochoose.ui_theme import apply_application_theme
 
 APP_ICON_PATH = Path(__file__).with_name("branding") / "photochoose-icon.png"
+MACOS_INSTANCE_LOCK_NAME = "io.github.cursedpc.photochoose.lock"
 
 
 def repair_macos_qt_plugin_visibility(plugin_root: Optional[Path] = None) -> int:
@@ -50,6 +51,23 @@ def repair_macos_qt_plugin_visibility(plugin_root: Optional[Path] = None) -> int
 def default_database_path() -> Path:
     data_directory = Path(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
     return data_directory / "photochoose.sqlite3"
+
+
+def acquire_macos_instance_lock(lock_path: Optional[Path] = None) -> Optional[QLockFile]:
+    """Prevent a frozen macOS bundle from creating duplicate main windows."""
+
+    path = lock_path
+    if path is None:
+        temporary_directory = Path(
+            QStandardPaths.writableLocation(QStandardPaths.TempLocation)
+        )
+        path = temporary_directory / MACOS_INSTANCE_LOCK_NAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock = QLockFile(str(path))
+    lock.setStaleLockTime(0)
+    if not lock.tryLock(0):
+        return None
+    return lock
 
 
 def create_application(
@@ -118,6 +136,11 @@ def _write_smoke_failure() -> None:
 
 def main() -> int:
     smoke_mode = "--smoke-test" in sys.argv
+    instance_lock = None
+    if sys.platform == "darwin" and getattr(sys, "frozen", False) and not smoke_mode:
+        instance_lock = acquire_macos_instance_lock()
+        if instance_lock is None:
+            return 0
     if smoke_mode:
         try:
             temporary_directory = Path(
@@ -132,4 +155,6 @@ def main() -> int:
         QTimer.singleShot(0, app.quit)
     else:
         app = create_application()
+    if instance_lock is not None:
+        app.photochoose_instance_lock = instance_lock
     return app.exec()
