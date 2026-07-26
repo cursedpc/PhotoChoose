@@ -17,6 +17,12 @@ target_arch = platform.machine()
 if target_arch not in ("arm64", "x86_64"):
     raise RuntimeError("Unsupported macOS build architecture: {0}".format(target_arch))
 
+# OpenVINO 2025.4.1's ARM64 wheel contains an optional TBB topology helper with
+# malformed Mach-O link-edit metadata and a Homebrew-only libhwloc path.
+# PyInstaller cannot rewrite that file. The ARM CPU plugin does not link to it;
+# oneTBB falls back to its normal scheduler when the helper is unavailable.
+excluded_arm64_openvino_binaries = {"libtbbbind_2_5.3.dylib"}
+
 datas = [
     (str(icon_path), "photochoose/branding"),
 ]
@@ -30,6 +36,12 @@ binaries = []
 hiddenimports = []
 for package in ("openvino", "ai_edge_litert"):
     package_datas, package_binaries, package_hiddenimports = collect_all(package)
+    if package == "openvino" and target_arch == "arm64":
+        package_binaries = [
+            binary
+            for binary in package_binaries
+            if Path(binary[0]).name not in excluded_arm64_openvino_binaries
+        ]
     datas.extend(package_datas)
     binaries.extend(package_binaries)
     hiddenimports.extend(package_hiddenimports)
