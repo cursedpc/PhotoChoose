@@ -192,11 +192,26 @@ The build must run on Windows; PyInstaller does not cross-build Windows executab
 Version tags and manual workflow runs execute the Windows builder in
 `.github/workflows/windows-installer.yml`. A matching tag such as `v0.1.4` publishes the tested
 installer, portable ZIP, Intel macOS DMG, and SHA-256 checksums directly to GitHub Releases. The
-macOS app is built on GitHub's Intel runner and is intentionally unsigned, so Gatekeeper may
-require Control-click → Open on first launch. Local build instructions are in
-`packaging/windows/README.md` and `packaging/macos/README.md`. To upgrade on Windows, download and
-run the newer setup file directly: its stable application identity reuses the existing installation
-and preserves the catalog and settings, so PhotoChoose does not need to be uninstalled first.
+macOS app is built on GitHub's Intel runner and is intentionally unsigned. Local build instructions
+are in `packaging/windows/README.md` and `packaging/macos/README.md`. To upgrade on Windows,
+download and run the newer setup file directly: its stable application identity reuses the existing
+installation and preserves the catalog and settings, so PhotoChoose does not need to be uninstalled
+first.
+
+### Install on Intel macOS
+
+Download the Intel macOS DMG from GitHub Releases, open it, and drag `PhotoChoose.app` into
+`Applications`. Because the current build is unsigned, remove macOS quarantine from the newly
+installed copy and open it from Terminal:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/PhotoChoose.app
+open /Applications/PhotoChoose.app
+```
+
+This is required only once for each newly downloaded or replaced copy of the app, not on every
+launch. Updating currently means replacing `PhotoChoose.app` with the version from the new DMG;
+the catalog and settings in Application Support are preserved.
 
 ## Keyboard workflow
 

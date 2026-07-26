@@ -88,6 +88,7 @@ application = BUNDLE(
         "CFBundleDisplayName": "PhotoChoose",
         "CFBundleName": "PhotoChoose",
         "CFBundleVersion": project_version,
+        "LSMultipleInstancesProhibited": True,
         "NSPrincipalClass": "NSApplication",
         "NSHighResolutionCapable": True,
     },

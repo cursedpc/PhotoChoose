@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import tomllib
 import unittest
 from pathlib import Path
@@ -8,10 +9,22 @@ from pathlib import Path
 from PySide6.QtCore import QSize
 
 from photochoose import __version__
+from photochoose.app import acquire_macos_instance_lock
 from photochoose.fullscreen_viewer import FullscreenPhotoDialog
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_instance_lock_rejects_duplicate_and_releases_cleanly(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            lock_path = Path(temporary) / "photochoose.lock"
+            first = acquire_macos_instance_lock(lock_path)
+            self.assertIsNotNone(first)
+            self.assertIsNone(acquire_macos_instance_lock(lock_path))
+            first.unlock()
+            replacement = acquire_macos_instance_lock(lock_path)
+            self.assertIsNotNone(replacement)
+            replacement.unlock()
+
     def test_project_uses_the_pinned_python_minor_version(self) -> None:
         self.assertEqual((3, 11), sys.version_info[:2])
 
@@ -39,6 +52,7 @@ class RuntimeTests(unittest.TestCase):
         )
         self.assertIn('target_arch="x86_64"', mac_spec)
         self.assertIn("version=project_version", mac_spec)
+        self.assertIn('"LSMultipleInstancesProhibited": True', mac_spec)
 
     def test_windows_installer_separates_program_and_user_data(self) -> None:
         project_root = Path(__file__).parents[1]
