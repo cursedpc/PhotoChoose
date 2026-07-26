@@ -88,7 +88,11 @@ class RuntimeTests(unittest.TestCase):
             "python packaging/macos/normalize_openvino_arm64.py",
             release_workflow,
         )
-        self.assertIn('lipo -verify_arch "${{ matrix.target_architecture }}"', release_workflow)
+        self.assertIn(
+            'lipo "$candidate" -verify_arch "${{ matrix.target_architecture }}"',
+            release_workflow,
+        )
+        self.assertNotIn('file "$candidate" | grep -q', release_workflow)
         self.assertIn("if: startsWith(github.ref, 'refs/tags/v')", release_workflow)
         self.assertNotIn(
             "startsWith(github.ref, 'refs/tags/v') || github.event_name",
