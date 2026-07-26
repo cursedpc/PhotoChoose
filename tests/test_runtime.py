@@ -58,6 +58,8 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn('("arm64", "x86_64")', mac_spec)
         self.assertIn('target_arch == "arm64"', mac_spec)
         self.assertIn('"libtbbbind_2_5.3.dylib"', mac_spec)
+        self.assertIn("package_datas = [", mac_spec)
+        self.assertIn("package_binaries = [", mac_spec)
         self.assertIn("version=project_version", mac_spec)
         self.assertIn('"LSMultipleInstancesProhibited": True', mac_spec)
         self.assertIn("runner: macos-15-intel", release_workflow)
