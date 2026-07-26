@@ -48,6 +48,11 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev,packaging]"
 
+      - name: Confirm Windows dependency versions
+        shell: pwsh
+        run: |
+          python -c "import importlib.metadata; assert importlib.metadata.version('openvino') == '2025.4.1'; assert importlib.metadata.version('ai-edge-litert') == '2.1.6'"
+
       - name: Run tests
         run: python -m unittest discover -s tests
 

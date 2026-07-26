@@ -14,9 +14,10 @@ dependencies = [
     "PySide6>=6.9,<6.10",
     "numpy>=1.24,<2",
     "opencv-python-headless>=4.8,<4.12",
-    # Pin each architecture to the native wheel validated by its release build.
-    "ai-edge-litert==1.0.1; sys_platform != 'darwin' or platform_machine != 'arm64'",
-    "ai-edge-litert==2.1.6; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    # Intel macOS only publishes the 1.0.x wheel. Windows and Apple Silicon
+    # publish the validated 2.1.6 wheel for CPython 3.11.
+    "ai-edge-litert==1.0.1; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "ai-edge-litert==2.1.6; sys_platform != 'darwin' or platform_machine == 'arm64'",
     # Keep the validated 2025.4.1 runtime on Intel macOS and Windows. Its ARM64
     # wheel contains TBB libraries that macOS cannot re-sign during packaging.
     "openvino==2025.4.1; sys_platform != 'darwin' or platform_machine != 'arm64'",
