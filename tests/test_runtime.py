@@ -59,11 +59,11 @@ class RuntimeTests(unittest.TestCase):
         self.assertNotIn("excluded_arm64_openvino_binaries", mac_spec)
         self.assertNotIn("libtbbbind_2_5.3.dylib", mac_spec)
         self.assertIn(
-            "ai-edge-litert==1.0.1; sys_platform != 'darwin' or platform_machine != 'arm64'",
+            "ai-edge-litert==1.0.1; sys_platform == 'darwin' and platform_machine == 'x86_64'",
             metadata["project"]["dependencies"],
         )
         self.assertIn(
-            "ai-edge-litert==2.1.6; sys_platform == 'darwin' and platform_machine == 'arm64'",
+            "ai-edge-litert==2.1.6; sys_platform != 'darwin' or platform_machine == 'arm64'",
             metadata["project"]["dependencies"],
         )
         self.assertIn(
@@ -82,6 +82,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn("target_architecture: arm64", release_workflow)
         self.assertIn("openvino_version: 2026.1.0", release_workflow)
         self.assertIn("litert_version: 2.1.6", release_workflow)
+        self.assertIn("Confirm Windows dependency versions", release_workflow)
         self.assertIn("dmg_suffix: Apple-Silicon", release_workflow)
         self.assertIn(
             "python packaging/macos/normalize_openvino_arm64.py",

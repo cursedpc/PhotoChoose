@@ -5,10 +5,11 @@ distributed as separate unsigned DMGs. Build each bundle on the matching macOS a
 Python 3.11; PyInstaller does not cross-build macOS applications from Windows or Linux. The spec
 selects `x86_64` or `arm64` from the build machine automatically.
 
-Intel builds retain OpenVINO 2025.4.1 for parity with Windows. Apple Silicon builds use OpenVINO
-2026.1 and LiteRT 2.1.6. A normalization step removes a known 16-byte padding defect from four
-OpenVINO ARM64 dylibs before PyInstaller re-signs them. The native tests, recursive Mach-O
-architecture check, and frozen smoke test validate the complete ARM runtime before publication.
+Intel builds retain OpenVINO 2025.4.1 and LiteRT 1.0.1, the latest LiteRT line published for Intel
+macOS. Apple Silicon builds use OpenVINO 2026.1 and LiteRT 2.1.6. A normalization step removes a
+known 16-byte padding defect from four OpenVINO ARM64 dylibs before PyInstaller re-signs them. The
+native tests, recursive Mach-O architecture check, and frozen smoke test validate the complete ARM
+runtime before publication. Windows also uses LiteRT 2.1.6 because no 1.0.1 Windows wheel exists.
 
 ```bash
 python3.11 -m venv .venv
