@@ -178,11 +178,15 @@ jobs:
             runner: macos-15-intel
             python_architecture: x64
             target_architecture: x86_64
+            openvino_version: 2025.4.1
+            litert_version: 1.0.1
             dmg_suffix: Intel
           - display_name: Apple Silicon
             runner: macos-15
             python_architecture: arm64
             target_architecture: arm64
+            openvino_version: 2026.1.0
+            litert_version: 2.1.6
             dmg_suffix: Apple-Silicon
 
     steps:
@@ -220,10 +224,22 @@ jobs:
       - name: Confirm native dependency architecture
         run: |
           test "$(uname -m)" = "${{ matrix.target_architecture }}"
-          python -c "import platform; assert platform.machine() == '${{ matrix.target_architecture }}', platform.machine()"
+          python - <<'PY'
+          import importlib.metadata
+          import platform
+
+          expected_architecture = "${{ matrix.target_architecture }}"
+          assert platform.machine() == expected_architecture, platform.machine()
+          assert importlib.metadata.version("openvino") == "${{ matrix.openvino_version }}"
+          assert importlib.metadata.version("ai-edge-litert") == "${{ matrix.litert_version }}"
+          PY
 
       - name: Run tests
         run: python -m unittest discover -s tests
+
+      - name: Normalize Apple Silicon OpenVINO Mach-O metadata
+        if: matrix.target_architecture == 'arm64'
+        run: python packaging/macos/normalize_openvino_arm64.py
 
       - name: Build native application bundle
         run: python -m PyInstaller --noconfirm --clean packaging/macos/photochoose.spec
@@ -238,6 +254,14 @@ jobs:
       - name: Verify and smoke-test application bundle
         shell: bash
         run: |
+          checked=0
+          while IFS= read -r -d '' candidate; do
+            if file "$candidate" | grep -q "Mach-O"; then
+              lipo -verify_arch "${{ matrix.target_architecture }}" "$candidate"
+              checked=$((checked + 1))
+            fi
+          done < <(find dist/PhotoChoose.app -type f -print0)
+          test "$checked" -gt 0
           test "$(lipo -archs dist/PhotoChoose.app/Contents/MacOS/PhotoChoose)" = "${{ matrix.target_architecture }}"
           export PHOTOCHOOSE_SMOKE_LOG="$RUNNER_TEMP/photochoose-macos-smoke.log"
           if ! dist/PhotoChoose.app/Contents/MacOS/PhotoChoose --smoke-test; then
@@ -274,7 +298,7 @@ jobs:
           retention-days: 14
 
   publish-release:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v')
     needs:
       - build-windows-installer
       - build-macos

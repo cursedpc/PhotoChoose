@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from photochoose.analysis_overlay import render_analysis_overlay
 from photochoose.database import PhotoDatabase
+from photochoose.keyboard_shortcuts import LayoutIndependentShortcutFilter
 from photochoose.models import Decision, Photo, PhotoView
 from photochoose.zoom_view import ZoomPanScrollArea
 
@@ -255,6 +256,14 @@ class GroupComparisonDialog(QDialog):
         splitter.setSizes([640, 640])
         layout.addWidget(splitter, 1)
         self._connect_scrollbars()
+        self.layout_independent_shortcuts = LayoutIndependentShortcutFilter(
+            self,
+            {
+                "O": lambda: self.overlay_button.setChecked(
+                    not self.overlay_button.isChecked()
+                ),
+            },
+        )
         self._show_pair()
 
     def _index_for_id(self, photo_id: int) -> int:

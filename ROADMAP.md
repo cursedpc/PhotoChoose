@@ -372,9 +372,10 @@ single selection, multi-selection, All, and decision-filtered views.
 ### Keyboard-layout-independent shortcuts
 
 **UI-02 implemented:** the single-letter culling shortcuts (`B`, `K`, `R`, `X`, `U`, and `O`)
-use their physical Windows scan codes in the grid and fullscreen viewer, so changing the active
-keyboard language does not disable them. Left/Right navigation and normal text-entry controls
-remain unaffected, with GUI regression coverage for both Latin and non-Latin key events.
+use physical key positions on Windows and macOS in the grid, fullscreen viewer, and comparison
+overlay, so changing the active keyboard language does not disable them. Left/Right navigation and
+normal text-entry controls remain unaffected, with GUI regression coverage for both Latin and
+non-Latin key events.
 
 ## Current implementation status
 
