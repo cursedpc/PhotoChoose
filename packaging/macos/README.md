@@ -6,14 +6,17 @@ Python 3.11; PyInstaller does not cross-build macOS applications from Windows or
 selects `x86_64` or `arm64` from the build machine automatically.
 
 Intel builds retain OpenVINO 2025.4.1 for parity with Windows. Apple Silicon builds use OpenVINO
-2026.1 because the 2025.4 ARM wheels contain TBB libraries that cannot be re-signed by PyInstaller;
-the native tests and frozen smoke test validate the ARM runtime before its DMG is published.
+2026.1 and LiteRT 2.1.6. A normalization step removes a known 16-byte padding defect from four
+OpenVINO ARM64 dylibs before PyInstaller re-signs them. The native tests, recursive Mach-O
+architecture check, and frozen smoke test validate the complete ARM runtime before publication.
 
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e '.[dev,packaging]'
+# Apple Silicon only:
+python packaging/macos/normalize_openvino_arm64.py
 python -m PyInstaller --noconfirm --clean packaging/macos/photochoose.spec
 xattr -cr dist/PhotoChoose.app
 codesign --force --deep --sign - dist/PhotoChoose.app

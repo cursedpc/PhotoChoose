@@ -22,6 +22,18 @@ WINDOWS_SCAN_CODE_SHORTCUTS = {
     0x18: "O",
 }
 
+# macOS reports the hardware-position key code as nativeVirtualKey(). These
+# ANSI positions stay stable when the user switches to Cyrillic or another
+# keyboard layout.
+MACOS_VIRTUAL_KEY_SHORTCUTS = {
+    0x0B: "B",
+    0x28: "K",
+    0x0F: "R",
+    0x07: "X",
+    0x20: "U",
+    0x1F: "O",
+}
+
 
 def physical_shortcut_token(
     event: QKeyEvent, platform: Optional[str] = None
@@ -30,13 +42,16 @@ def physical_shortcut_token(
 
     if event.modifiers() & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier):
         return None
-    if (platform or sys.platform) != "win32":
-        return None
-    return WINDOWS_SCAN_CODE_SHORTCUTS.get(event.nativeScanCode() & 0xFF)
+    current_platform = platform or sys.platform
+    if current_platform == "win32":
+        return WINDOWS_SCAN_CODE_SHORTCUTS.get(event.nativeScanCode() & 0xFF)
+    if current_platform == "darwin":
+        return MACOS_VIRTUAL_KEY_SHORTCUTS.get(event.nativeVirtualKey() & 0xFF)
+    return None
 
 
 class LayoutIndependentShortcutFilter(QObject):
-    """Dispatch physical Windows culling keys inside one top-level window."""
+    """Dispatch physical Windows and macOS keys inside one top-level window."""
 
     def __init__(
         self,

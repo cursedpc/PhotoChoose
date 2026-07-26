@@ -521,6 +521,19 @@ class GuiSmokeTests(unittest.TestCase):
                 app.sendEvent(viewer.menu_button, non_latin_keep)
             refreshed = window.database.list_photos(project.id, PhotoView.ALL)
             self.assertEqual(Decision.KEEP, refreshed[0].decision)
+            non_latin_macos_reject = QKeyEvent(
+                QEvent.KeyPress,
+                ord("Ч"),
+                Qt.NoModifier,
+                0,
+                0x07,
+                0,
+                "ч",
+            )
+            with patch("photochoose.keyboard_shortcuts.sys.platform", "darwin"):
+                app.sendEvent(viewer.menu_button, non_latin_macos_reject)
+            refreshed = window.database.list_photos(project.id, PhotoView.ALL)
+            self.assertEqual(Decision.REJECT, refreshed[0].decision)
             viewer.next_button.setFocus()
             was_best = refreshed[0].is_best
             QTest.keyClick(viewer.next_button, Qt.Key_B)
@@ -560,6 +573,18 @@ class GuiSmokeTests(unittest.TestCase):
             )
             QTest.keyClick(window.comparison_dialog, Qt.Key_O)
             self.assertTrue(window.comparison_dialog.left_pane.overlay_enabled)
+            non_latin_macos_overlay = QKeyEvent(
+                QEvent.KeyPress,
+                ord("Щ"),
+                Qt.NoModifier,
+                0,
+                0x1F,
+                0,
+                "щ",
+            )
+            with patch("photochoose.keyboard_shortcuts.sys.platform", "darwin"):
+                app.sendEvent(window.comparison_dialog, non_latin_macos_overlay)
+            self.assertFalse(window.comparison_dialog.left_pane.overlay_enabled)
             app.processEvents()
             self.assertFalse(
                 window.comparison_dialog.left_pane.image_label.pixmap().isNull()

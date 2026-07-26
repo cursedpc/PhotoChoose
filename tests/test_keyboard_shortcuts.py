@@ -6,6 +6,7 @@ from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent
 
 from photochoose.keyboard_shortcuts import (
+    MACOS_VIRTUAL_KEY_SHORTCUTS,
     WINDOWS_SCAN_CODE_SHORTCUTS,
     physical_shortcut_token,
 )
@@ -37,6 +38,19 @@ class KeyboardShortcutTests(unittest.TestCase):
         )
         self.assertIsNone(physical_shortcut_token(modified, "win32"))
         self.assertIsNone(physical_shortcut_token(modified, "darwin"))
+
+    def test_macos_culling_shortcuts_use_physical_virtual_keys(self) -> None:
+        for virtual_key, expected in MACOS_VIRTUAL_KEY_SHORTCUTS.items():
+            event = QKeyEvent(
+                QEvent.KeyPress,
+                ord("Ж"),
+                Qt.NoModifier,
+                0,
+                virtual_key,
+                0,
+                "ж",
+            )
+            self.assertEqual(expected, physical_shortcut_token(event, "darwin"))
 
 
 if __name__ == "__main__":

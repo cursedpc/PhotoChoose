@@ -215,6 +215,9 @@ the catalog and settings in Application Support are preserved.
 
 ## Keyboard workflow
 
+The letter shortcuts use physical key positions on Windows and macOS, so they keep working when a
+non-English keyboard layout is active.
+
 - `K`: Keep
 - `R`: Review
 - `X`: Reject

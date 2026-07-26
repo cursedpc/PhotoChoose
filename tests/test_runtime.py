@@ -56,10 +56,16 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn('target_arch = platform.machine()', mac_spec)
         self.assertIn('target_arch=target_arch', mac_spec)
         self.assertIn('("arm64", "x86_64")', mac_spec)
-        self.assertIn('target_arch == "arm64"', mac_spec)
-        self.assertIn('"libtbbbind_2_5.3.dylib"', mac_spec)
-        self.assertIn("package_datas = [", mac_spec)
-        self.assertIn("package_binaries = [", mac_spec)
+        self.assertNotIn("excluded_arm64_openvino_binaries", mac_spec)
+        self.assertNotIn("libtbbbind_2_5.3.dylib", mac_spec)
+        self.assertIn(
+            "ai-edge-litert==1.0.1; sys_platform != 'darwin' or platform_machine != 'arm64'",
+            metadata["project"]["dependencies"],
+        )
+        self.assertIn(
+            "ai-edge-litert==2.1.6; sys_platform == 'darwin' and platform_machine == 'arm64'",
+            metadata["project"]["dependencies"],
+        )
         self.assertIn(
             "openvino==2025.4.1; sys_platform != 'darwin' or platform_machine != 'arm64'",
             metadata["project"]["dependencies"],
@@ -74,8 +80,19 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn("target_architecture: x86_64", release_workflow)
         self.assertIn("runner: macos-15", release_workflow)
         self.assertIn("target_architecture: arm64", release_workflow)
+        self.assertIn("openvino_version: 2026.1.0", release_workflow)
+        self.assertIn("litert_version: 2.1.6", release_workflow)
         self.assertIn("dmg_suffix: Apple-Silicon", release_workflow)
-        self.assertIn("github.event_name == 'workflow_dispatch'", release_workflow)
+        self.assertIn(
+            "python packaging/macos/normalize_openvino_arm64.py",
+            release_workflow,
+        )
+        self.assertIn('lipo -verify_arch "${{ matrix.target_architecture }}"', release_workflow)
+        self.assertIn("if: startsWith(github.ref, 'refs/tags/v')", release_workflow)
+        self.assertNotIn(
+            "startsWith(github.ref, 'refs/tags/v') || github.event_name",
+            release_workflow,
+        )
 
     def test_windows_installer_separates_program_and_user_data(self) -> None:
         project_root = Path(__file__).parents[1]
