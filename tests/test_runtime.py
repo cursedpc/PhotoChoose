@@ -43,6 +43,9 @@ class RuntimeTests(unittest.TestCase):
         mac_spec = (project_root / "packaging/macos/photochoose.spec").read_text(
             encoding="utf-8"
         )
+        release_workflow = (
+            project_root / ".github/workflows/windows-installer.yml"
+        ).read_text(encoding="utf-8")
 
         self.assertEqual(project_version, __version__)
         self.assertIn('#define AppVersion "{0}"'.format(project_version), installer)
@@ -50,9 +53,17 @@ class RuntimeTests(unittest.TestCase):
             "StringStruct('ProductVersion', '{0}')".format(project_version),
             version_info,
         )
-        self.assertIn('target_arch="x86_64"', mac_spec)
+        self.assertIn('target_arch = platform.machine()', mac_spec)
+        self.assertIn('target_arch=target_arch', mac_spec)
+        self.assertIn('("arm64", "x86_64")', mac_spec)
         self.assertIn("version=project_version", mac_spec)
         self.assertIn('"LSMultipleInstancesProhibited": True', mac_spec)
+        self.assertIn("runner: macos-15-intel", release_workflow)
+        self.assertIn("target_architecture: x86_64", release_workflow)
+        self.assertIn("runner: macos-15", release_workflow)
+        self.assertIn("target_architecture: arm64", release_workflow)
+        self.assertIn("dmg_suffix: Apple-Silicon", release_workflow)
+        self.assertIn("github.event_name == 'workflow_dispatch'", release_workflow)
 
     def test_windows_installer_separates_program_and_user_data(self) -> None:
         project_root = Path(__file__).parents[1]

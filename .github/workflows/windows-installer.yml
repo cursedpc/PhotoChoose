@@ -1,4 +1,4 @@
-name: Windows and Intel macOS release
+name: Windows and macOS release
 
 on:
   workflow_dispatch:
@@ -164,21 +164,36 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  build-macos-intel:
-    runs-on: macos-15-intel
+  build-macos:
+    name: Build macOS ${{ matrix.display_name }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     env:
       QT_QPA_PLATFORM: offscreen
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - display_name: Intel
+            runner: macos-15-intel
+            python_architecture: x64
+            target_architecture: x86_64
+            dmg_suffix: Intel
+          - display_name: Apple Silicon
+            runner: macos-15
+            python_architecture: arm64
+            target_architecture: arm64
+            dmg_suffix: Apple-Silicon
 
     steps:
       - name: Check out source
         uses: actions/checkout@v6
 
-      - name: Set up Python 3.11 x64
+      - name: Set up Python 3.11 ${{ matrix.target_architecture }}
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-          architecture: x64
+          architecture: ${{ matrix.python_architecture }}
           cache: pip
 
       - name: Read application version
@@ -202,15 +217,15 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev,packaging]"
 
-      - name: Confirm Intel dependency architecture
+      - name: Confirm native dependency architecture
         run: |
-          test "$(uname -m)" = "x86_64"
-          python -c "import platform; assert platform.machine() == 'x86_64', platform.machine()"
+          test "$(uname -m)" = "${{ matrix.target_architecture }}"
+          python -c "import platform; assert platform.machine() == '${{ matrix.target_architecture }}', platform.machine()"
 
       - name: Run tests
         run: python -m unittest discover -s tests
 
-      - name: Build Intel application bundle
+      - name: Build native application bundle
         run: python -m PyInstaller --noconfirm --clean packaging/macos/photochoose.spec
 
       - name: Prepare unsigned application bundle
@@ -223,48 +238,52 @@ jobs:
       - name: Verify and smoke-test application bundle
         shell: bash
         run: |
-          test "$(lipo -archs dist/PhotoChoose.app/Contents/MacOS/PhotoChoose)" = "x86_64"
+          test "$(lipo -archs dist/PhotoChoose.app/Contents/MacOS/PhotoChoose)" = "${{ matrix.target_architecture }}"
           export PHOTOCHOOSE_SMOKE_LOG="$RUNNER_TEMP/photochoose-macos-smoke.log"
           if ! dist/PhotoChoose.app/Contents/MacOS/PhotoChoose --smoke-test; then
             test ! -f "$PHOTOCHOOSE_SMOKE_LOG" || cat "$PHOTOCHOOSE_SMOKE_LOG"
             exit 1
           fi
 
-      - name: Create unsigned Intel DMG
+      - name: Create unsigned ${{ matrix.display_name }} DMG
         shell: bash
         run: |
           mkdir -p release/dmg-root
           ditto --noextattr --noacl dist/PhotoChoose.app release/dmg-root/PhotoChoose.app
           ln -s /Applications release/dmg-root/Applications
           hdiutil create -volname PhotoChoose -srcfolder release/dmg-root -ov -format UDZO \
-            "release/PhotoChoose-$APP_VERSION-macOS-Intel.dmg"
+            "release/PhotoChoose-$APP_VERSION-macOS-${{ matrix.dmg_suffix }}.dmg"
 
       - name: Verify DMG contents
         shell: bash
         run: |
           mount_point="$RUNNER_TEMP/photochoose-dmg"
           mkdir -p "$mount_point"
-          hdiutil attach "release/PhotoChoose-$APP_VERSION-macOS-Intel.dmg" \
+          hdiutil attach "release/PhotoChoose-$APP_VERSION-macOS-${{ matrix.dmg_suffix }}.dmg" \
             -readonly -nobrowse -mountpoint "$mount_point"
           test -x "$mount_point/PhotoChoose.app/Contents/MacOS/PhotoChoose"
+          test "$(lipo -archs "$mount_point/PhotoChoose.app/Contents/MacOS/PhotoChoose")" = "${{ matrix.target_architecture }}"
           hdiutil detach "$mount_point"
 
-      - name: Upload Intel macOS artifact
+      - name: Upload ${{ matrix.display_name }} macOS artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhotoChoose-macOS-Intel-${{ env.APP_VERSION }}
-          path: release/PhotoChoose-*-macOS-Intel.dmg
+          name: PhotoChoose-macOS-${{ matrix.dmg_suffix }}-${{ env.APP_VERSION }}
+          path: release/PhotoChoose-*-macOS-${{ matrix.dmg_suffix }}.dmg
           if-no-files-found: error
           retention-days: 14
 
   publish-release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     needs:
       - build-windows-installer
-      - build-macos-intel
+      - build-macos
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
       - name: Download tested release artifacts
         uses: actions/download-artifact@v4
         with:
@@ -284,10 +303,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" release/* --clobber
+          version=$(python -c "import pathlib,tomllib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version'])")
+          release_tag="v$version"
+          if [[ "$GITHUB_REF" == refs/tags/v* && "$GITHUB_REF_NAME" != "$release_tag" ]]; then
+            echo "Release tag '$GITHUB_REF_NAME' does not match application version '$release_tag'" >&2
+            exit 1
+          fi
+          if gh release view "$release_tag" >/dev/null 2>&1; then
+            gh release upload "$release_tag" release/* --clobber
           else
-            gh release create "$GITHUB_REF_NAME" release/* --verify-tag --generate-notes \
+            gh release create "$release_tag" release/* --verify-tag --generate-notes \
               --latest --title "PhotoChoose $version"
           fi

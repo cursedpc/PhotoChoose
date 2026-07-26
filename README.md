@@ -181,7 +181,7 @@ On Windows, create the environment with `py -3.11 -m venv .venv`, then activate 
 `.venv\\Scripts\\activate` before installing and running the application. Confirm the selected
 interpreter with `python -VV`; it must report Python 3.11 before dependencies are installed.
 
-## Windows and Intel macOS release builds
+## Windows and macOS release builds
 
 Windows releases use a PyInstaller one-folder application wrapped in an Inno Setup installer under
 Program Files. The installer requests elevation, and uninstalling it preserves the
@@ -189,20 +189,20 @@ PhotoChoose catalog under `%APPDATA%\\PhotoChoose\\PhotoChoose`. The same applic
 also emitted as a portable ZIP for target-machine diagnostics.
 
 The build must run on Windows; PyInstaller does not cross-build Windows executables from macOS.
-Version tags and manual workflow runs execute the Windows builder in
+Version tags and manual workflow runs execute the release builders in
 `.github/workflows/windows-installer.yml`. A matching tag such as `v0.1.4` publishes the tested
-installer, portable ZIP, Intel macOS DMG, and SHA-256 checksums directly to GitHub Releases. The
-macOS app is built on GitHub's Intel runner and is intentionally unsigned. Local build instructions
-are in `packaging/windows/README.md` and `packaging/macos/README.md`. To upgrade on Windows,
-download and run the newer setup file directly: its stable application identity reuses the existing
-installation and preserves the catalog and settings, so PhotoChoose does not need to be uninstalled
-first.
+installer, portable ZIP, native Intel and Apple Silicon macOS DMGs, and SHA-256 checksums directly
+to GitHub Releases. The macOS apps are built on matching native GitHub runners and are intentionally
+unsigned. Local build instructions are in `packaging/windows/README.md` and
+`packaging/macos/README.md`. To upgrade on Windows, download and run the newer setup file directly:
+its stable application identity reuses the existing installation and preserves the catalog and
+settings, so PhotoChoose does not need to be uninstalled first.
 
-### Install on Intel macOS
+### Install on macOS
 
-Download the Intel macOS DMG from GitHub Releases, open it, and drag `PhotoChoose.app` into
-`Applications`. Because the current build is unsigned, remove macOS quarantine from the newly
-installed copy and open it from Terminal:
+Download the DMG matching the Mac—`Apple-Silicon` for M-series Macs or `Intel` for Intel Macs—open
+it, and drag `PhotoChoose.app` into `Applications`. Because the current builds are unsigned, remove
+macOS quarantine from the newly installed copy and open it from Terminal:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/PhotoChoose.app

@@ -1,5 +1,6 @@
 # ruff: noqa: F821
 
+import platform
 import tomllib
 from pathlib import Path
 
@@ -12,6 +13,9 @@ icon_path = package_root / "branding" / "photochoose-icon.png"
 project_version = tomllib.loads(
     (project_root / "pyproject.toml").read_text(encoding="utf-8")
 )["project"]["version"]
+target_arch = platform.machine()
+if target_arch not in ("arm64", "x86_64"):
+    raise RuntimeError("Unsupported macOS build architecture: {0}".format(target_arch))
 
 datas = [
     (str(icon_path), "photochoose/branding"),
@@ -61,7 +65,7 @@ executable = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch="x86_64",
+    target_arch=target_arch,
     codesign_identity=None,
     entitlements_file=None,
     icon=str(icon_path),
