@@ -246,9 +246,22 @@ class GuiSmokeTests(unittest.TestCase):
                 [action.text() for action in window.menuBar().actions()],
             )
             self.assertEqual("Show hints", window.show_hints_action.text())
-            self.assertFalse(window.folder_menu.menuAction().isEnabled())
-            self.assertFalse(window.photo_menu.menuAction().isEnabled())
-            self.assertFalse(window.view_menu.menuAction().isEnabled())
+            self.assertTrue(window.folder_menu.menuAction().isEnabled())
+            self.assertTrue(window.photo_menu.menuAction().isEnabled())
+            self.assertTrue(window.view_menu.menuAction().isEnabled())
+            self.assertTrue(
+                all(
+                    not action.isEnabled()
+                    for action in window.folder_menu.actions()
+                    if not action.isSeparator()
+                )
+            )
+            self.assertTrue(
+                all(not action.isEnabled() for action in window.photo_menu_actions)
+            )
+            self.assertTrue(
+                all(not action.isEnabled() for action in window.view_menu_actions)
+            )
             self.assertFalse(window.view_tabs.isEnabled())
             self.assertFalse(window.photo_grid.isEnabled())
             self.assertEqual("No folder selected", window.project_title.text())
@@ -267,6 +280,12 @@ class GuiSmokeTests(unittest.TestCase):
 
             project = window.database.add_project(shoot)
             window._load_projects(project.id)
+            self.assertTrue(
+                all(action.isEnabled() for action in window.photo_menu_actions)
+            )
+            self.assertTrue(
+                all(action.isEnabled() for action in window.view_menu_actions)
+            )
             window._start_scan(project, analyze_after=True)
             deadline = time.monotonic() + 10.0
             while window.busy_projects and time.monotonic() < deadline:

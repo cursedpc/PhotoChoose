@@ -500,31 +500,38 @@ class MainWindow(QMainWindow):
         self.folder_menu.addAction(self.calibration_button)
 
         self.photo_menu = self.menuBar().addMenu("Photo")
+        self.photo_menu_actions = []
         for text, handler in (
             ("Keep    K", lambda: self._set_decision(Decision.KEEP)),
             ("Review    R", lambda: self._set_decision(Decision.REVIEW)),
             ("Reject    X", lambda: self._set_decision(Decision.REJECT)),
             ("Clear decision    U", lambda: self._set_decision(Decision.UNREVIEWED)),
         ):
-            self.photo_menu.addAction(text).triggered.connect(handler)
+            action = self.photo_menu.addAction(text)
+            action.triggered.connect(handler)
+            self.photo_menu_actions.append(action)
         self.photo_menu.addSeparator()
-        self.photo_menu.addAction("Toggle Best    B").triggered.connect(self._toggle_best)
-        self.photo_menu.addAction("Open fullscreen").triggered.connect(
-            self._open_selected_fullscreen
-        )
-        self.photo_menu.addAction("Compare group").triggered.connect(
-            self._open_selected_comparison
-        )
+        for text, handler in (
+            ("Toggle Best    B", self._toggle_best),
+            ("Open fullscreen", self._open_selected_fullscreen),
+            ("Compare group", self._open_selected_comparison),
+        ):
+            action = self.photo_menu.addAction(text)
+            action.triggered.connect(handler)
+            self.photo_menu_actions.append(action)
 
         self.view_menu = self.menuBar().addMenu("View")
+        self.view_menu_actions = []
         for index, view in enumerate(VIEWS):
-            self.view_menu.addAction(view.value.title()).triggered.connect(
+            action = self.view_menu.addAction(view.value.title())
+            action.triggered.connect(
                 lambda _checked=False, selected=index: self.view_tabs.setCurrentIndex(selected)
             )
+            self.view_menu_actions.append(action)
         self.view_menu.addSeparator()
-        self.view_menu.addAction("Analysis overlay    O").triggered.connect(
-            self._toggle_analysis_overlay
-        )
+        analysis_overlay_action = self.view_menu.addAction("Analysis overlay    O")
+        analysis_overlay_action.triggered.connect(self._toggle_analysis_overlay)
+        self.view_menu_actions.append(analysis_overlay_action)
 
         self.help_menu = self.menuBar().addMenu("Help")
         self.show_hints_action = self.help_menu.addAction("Show hints")
@@ -1253,9 +1260,10 @@ class MainWindow(QMainWindow):
         self.project_options_button.setEnabled(enabled)
         self.analysis_profile_combo.setEnabled(enabled)
         self.best_count_spin.setEnabled(enabled)
-        self.folder_menu.menuAction().setEnabled(has_folder)
-        self.photo_menu.menuAction().setEnabled(has_folder)
-        self.view_menu.menuAction().setEnabled(has_folder)
+        for action in self.photo_menu_actions:
+            action.setEnabled(has_folder)
+        for action in self.view_menu_actions:
+            action.setEnabled(has_folder)
         self.view_tabs.setEnabled(has_folder)
         self.photo_grid.setEnabled(has_folder)
         self.inspector.toggle_button.setEnabled(has_folder)
