@@ -261,10 +261,13 @@ jobs:
         run: |
           checked=0
           while IFS= read -r -d '' candidate; do
-            if file "$candidate" | grep -q "Mach-O"; then
-              lipo -verify_arch "${{ matrix.target_architecture }}" "$candidate"
-              checked=$((checked + 1))
-            fi
+            description="$(file -b "$candidate")"
+            case "$description" in
+              *Mach-O*)
+                lipo "$candidate" -verify_arch "${{ matrix.target_architecture }}"
+                checked=$((checked + 1))
+                ;;
+            esac
           done < <(find dist/PhotoChoose.app -type f -print0)
           test "$checked" -gt 0
           test "$(lipo -archs dist/PhotoChoose.app/Contents/MacOS/PhotoChoose)" = "${{ matrix.target_architecture }}"
