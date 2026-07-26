@@ -201,8 +201,12 @@ settings, so PhotoChoose does not need to be uninstalled first.
 ### Install on macOS
 
 Download the DMG matching the Mac—`Apple-Silicon` for M-series Macs or `Intel` for Intel Macs—open
-it, and drag `PhotoChoose.app` into `Applications`. Because the current builds are unsigned, remove
-macOS quarantine from the newly installed copy and open it from Terminal:
+it, and drag `PhotoChoose.app` into `Applications`. The installation and first-launch procedure is
+the same on Intel and Apple Silicon; only the downloaded DMG differs. The Apple Silicon build is
+native ARM64 and does not require Rosetta.
+
+Because both builds are unsigned, remove macOS quarantine from the newly installed copy and open it
+from Terminal:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/PhotoChoose.app
@@ -210,8 +214,9 @@ open /Applications/PhotoChoose.app
 ```
 
 This is required only once for each newly downloaded or replaced copy of the app, not on every
-launch. Updating currently means replacing `PhotoChoose.app` with the version from the new DMG;
-the catalog and settings in Application Support are preserved.
+launch. As an alternative, try opening the app and then select **Open Anyway** under **System
+Settings → Privacy & Security**. Updating currently means replacing `PhotoChoose.app` with the
+version from the new DMG; the catalog and settings in Application Support are preserved.
 
 ## Keyboard workflow
 
