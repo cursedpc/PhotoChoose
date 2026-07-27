@@ -90,13 +90,17 @@ def create_application(
 
 
 def run_packaging_smoke_test() -> None:
-    """Require the frozen build's bundled models to run on OpenVINO CPU."""
+    """Require the frozen build's native HEIF and OpenVINO runtimes to load."""
 
     import numpy as np
+    import pi_heif
 
     from photochoose.inference_backend import openvino_backend_status
     from photochoose.object_models import GeneralSubjectAnalyzer
     from photochoose.vision_models import ModelSubjectAnalyzer
+
+    if not pi_heif.libheif_version():
+        raise RuntimeError("Bundled HEIC decoder is unavailable")
 
     status = openvino_backend_status()
     if status["device"] != "CPU":

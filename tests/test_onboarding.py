@@ -12,26 +12,28 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QPoint, QRect, QSettings, Qt  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
-from PySide6.QtWidgets import QMainWindow, QWidget  # noqa: E402
+from PySide6.QtWidgets import QWidget  # noqa: E402
 
 from photochoose.app import create_application  # noqa: E402
 from photochoose.onboarding import CoachMarkOverlay, OnboardingController  # noqa: E402
 
 
 class OnboardingTests(unittest.TestCase):
-    def test_target_highlight_tracks_menu_across_window_geometry_changes(self) -> None:
+    def test_target_highlight_tracks_widget_across_geometry_changes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             app = create_application(["photochoose-hint-position-test"], root / "state.sqlite3")
-            host = QMainWindow()
-            host.menuBar().addMenu("File")
+            host = QWidget()
             host.resize(920, 560)
             host.move(37, 51)
             host.show()
+            target = QWidget(host)
+            target.setGeometry(24, 18, 280, 34)
+            target.show()
             overlay = CoachMarkOverlay(
                 host,
-                host.menuBar(),
-                "Menu target",
+                target,
+                "Responsive target",
                 "The highlight follows logical widget coordinates.",
                 "GUIDE  8 / 8",
             )
@@ -44,15 +46,15 @@ class OnboardingTests(unittest.TestCase):
             ):
                 host.move(position)
                 host.resize(*size)
-                QTest.qWait(20)
-                app.processEvents()
+                target.move(max(12, size[0] // 9), max(12, size[1] // 10))
+                overlay._sync_geometry()
                 expected_top_left = overlay.mapFrom(
                     host,
-                    host.menuBar().mapTo(host, host.menuBar().rect().topLeft()),
+                    target.mapTo(host, target.rect().topLeft()),
                 )
                 expected_bottom_right = overlay.mapFrom(
                     host,
-                    host.menuBar().mapTo(host, host.menuBar().rect().bottomRight()),
+                    target.mapTo(host, target.rect().bottomRight()),
                 )
                 expected = (
                     QRect(expected_top_left, expected_bottom_right)

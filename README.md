@@ -56,11 +56,12 @@ PhotoChoose is a private, local-first desktop application for professional photo
 - Export kept and best photographs to a user-selected destination.
 - Resume with the same projects and decisions after restarting.
 - Rescan a project without losing decisions for files that still exist.
-- Read JPEG, PNG, WebP, BMP, and TIFF previews.
+- Read JPEG, HEIC/HEIF, PNG, WebP, BMP, and TIFF previews through one oriented,
+  color-aware display and analysis path.
 - Recognize common Canon, Nikon, Sony, Fujifilm, Olympus/OM, Panasonic, Pentax,
   Hasselblad, Phase One, Samsung, Sigma, Leica, and DNG RAW extensions.
-- Treat matching RAW, JPEG, and XMP files as one culling item and export the complete
-  file set together.
+- Treat matching RAW, preview, XMP/AAE, and HEIC Live Photo MOV files as one culling
+  item and export the complete file set together.
 - Extract sufficiently large embedded JPEG previews from RAW-only files into the local
   application cache. RAW files without a usable preview remain safely in Review.
 
@@ -143,6 +144,10 @@ for output parity on the macOS development machine; throughput, memory, and ther
 large shoots remains for the target Windows 11 machine. Intel GPU and OpenVINO `AUTO` execution are
 outside the current implementation scope.
 
+HEIC/HEIF decoding uses `pi-heif` 1.4.0 and its bundled LGPL-3.0-or-later libheif/libde265
+components. The packaged Python distribution metadata includes `LICENSE.txt` and
+`LICENSES_bundled.txt`; PhotoChoose does not bundle an HEIF encoder.
+
 ## Export behavior
 
 **Export Keep + Best…** creates `Keep` and `Best` folders inside the destination you choose and preserves the shoot's relative subfolder structure. A photograph marked both Keep and Best is copied into both collections. Existing destination files are skipped rather than overwritten, and the source shoot folder is never modified. PhotoChoose refuses to export inside the source shoot because a later rescan would otherwise import the copies again.
@@ -162,6 +167,24 @@ previews are never exported as source assets.
 RAW-only support depends on the camera file containing a discoverable embedded JPEG of
 useful size. PhotoChoose does not develop RAW sensor data, alter originals, or classify an
 unpreviewable RAW as a technical failure.
+
+## HEIC, Live Photo, and PNG behavior
+
+HEIC/HEIF still images and PNG files participate in the same local analysis, thumbnails,
+fullscreen view, comparison view, decisions, and export flow as JPEG. PNG transparency is
+composited consistently for both viewing and analysis. HEIC decoding is CPU-only and uses the
+pinned decode-only `pi-heif` wheel, which is available for Windows x64, Intel macOS, and Apple
+Silicon macOS.
+
+An `IMG_1234.HEIC` with a matching `IMG_1234.MOV` appears once with a `LIVE` badge. Any matching
+`.AAE` or `.XMP` sidecar is included too, and export copies every original member without
+conversion. PhotoChoose analyzes the HEIC still and preserves the motion file; it does not play or
+analyze video. For HEIF containers with auxiliary or multiple images, PhotoChoose deliberately
+uses the declared primary still instead of treating depth/auxiliary images as burst frames.
+
+Apple bursts normally arrive as separate still files. PhotoChoose uses an explicit burst identifier
+when one is present in HEIF/XMP metadata, with the existing capture-time, camera, and visual-
+similarity grouping as a fallback.
 
 ## Development setup
 

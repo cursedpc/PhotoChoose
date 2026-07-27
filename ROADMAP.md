@@ -377,6 +377,15 @@ overlay, so changing the active keyboard language does not disable them. Left/Ri
 normal text-entry controls remain unaffected, with GUI regression coverage for both Latin and
 non-Latin key events.
 
+### HEIC, Live Photo, and PNG support
+
+The active cross-platform format slice adds decode-only HEIC/HEIF and a normalized PNG path on
+Windows x64, Intel macOS, and Apple Silicon macOS. Matching HEIC + MOV Live Photos are represented
+by one still-image culling item while export preserves the original motion and AAE/XMP companions.
+Apple burst identifiers are preferred when metadata exposes them; capture-time and perceptual
+grouping remain the fallback for separate burst frames. Video playback, video analysis, HEIF
+encoding, and interpreting auxiliary/depth HEIF images as photographs stay outside this slice.
+
 ## Current implementation status
 
 The working prototype now exceeds the first slice: it scans and analyzes in background

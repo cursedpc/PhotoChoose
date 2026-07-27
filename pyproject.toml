@@ -14,6 +14,10 @@ dependencies = [
     "PySide6>=6.9,<6.10",
     "numpy>=1.24,<2",
     "opencv-python-headless>=4.8,<4.12",
+    "Pillow>=12,<13",
+    # Decode-only HEIF wheels exist for Windows x64, Intel macOS, and arm64
+    # macOS without bundling the unneeded GPL x265 encoder.
+    "pi-heif==1.4.0",
     # Intel macOS only publishes the 1.0.x wheel. Windows and Apple Silicon
     # publish the validated 2.1.6 wheel for CPython 3.11.
     "ai-edge-litert==1.0.1; sys_platform == 'darwin' and platform_machine == 'x86_64'",
@@ -30,7 +34,6 @@ dev = [
     "ruff",
 ]
 packaging = [
-    "Pillow>=12,<13",
     "pyinstaller==6.21.0",
 ]
 

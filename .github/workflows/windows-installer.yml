@@ -51,7 +51,7 @@ jobs:
       - name: Confirm Windows dependency versions
         shell: pwsh
         run: |
-          python -c "import importlib.metadata; assert importlib.metadata.version('openvino') == '2025.4.1'; assert importlib.metadata.version('ai-edge-litert') == '2.1.6'"
+          python -c "import importlib.metadata; assert importlib.metadata.version('openvino') == '2025.4.1'; assert importlib.metadata.version('ai-edge-litert') == '2.1.6'; assert importlib.metadata.version('pi-heif') == '1.4.0'"
 
       - name: Run tests
         run: python -m unittest discover -s tests
@@ -237,6 +237,7 @@ jobs:
           assert platform.machine() == expected_architecture, platform.machine()
           assert importlib.metadata.version("openvino") == "${{ matrix.openvino_version }}"
           assert importlib.metadata.version("ai-edge-litert") == "${{ matrix.litert_version }}"
+          assert importlib.metadata.version("pi-heif") == "1.4.0"
           PY
 
       - name: Run tests

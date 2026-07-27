@@ -108,6 +108,9 @@ class PhotoDatabase:
                     asset_paths TEXT NOT NULL DEFAULT '[]',
                     raw_count INTEGER NOT NULL DEFAULT 0,
                     sidecar_count INTEGER NOT NULL DEFAULT 0,
+                    motion_count INTEGER NOT NULL DEFAULT 0,
+                    burst_id TEXT,
+                    live_photo_id TEXT,
                     asset_key TEXT,
                     indexed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(project_id, relative_path)
@@ -229,6 +232,9 @@ class PhotoDatabase:
             "asset_paths": "TEXT NOT NULL DEFAULT '[]'",
             "raw_count": "INTEGER NOT NULL DEFAULT 0",
             "sidecar_count": "INTEGER NOT NULL DEFAULT 0",
+            "motion_count": "INTEGER NOT NULL DEFAULT 0",
+            "burst_id": "TEXT",
+            "live_photo_id": "TEXT",
             "asset_key": "TEXT",
         }
         for name, definition in definitions.items():
@@ -431,8 +437,8 @@ class PhotoDatabase:
                         captured_at, camera_make, camera_model, lens_model, iso,
                         exposure_seconds, aperture, focal_length, preview_relative_path,
                         cached_preview_path, asset_paths, raw_count, sidecar_count,
-                        asset_key
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        motion_count, burst_id, live_photo_id, asset_key
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(project_id, relative_path) DO UPDATE SET
                         extension = excluded.extension,
                         size_bytes = excluded.size_bytes,
@@ -442,6 +448,9 @@ class PhotoDatabase:
                         asset_paths = excluded.asset_paths,
                         raw_count = excluded.raw_count,
                         sidecar_count = excluded.sidecar_count,
+                        motion_count = excluded.motion_count,
+                        burst_id = excluded.burst_id,
+                        live_photo_id = excluded.live_photo_id,
                         asset_key = excluded.asset_key,
                         captured_at = excluded.captured_at,
                         camera_make = excluded.camera_make,
@@ -604,6 +613,9 @@ class PhotoDatabase:
                         json.dumps(metadata.asset_paths),
                         metadata.raw_count,
                         metadata.sidecar_count,
+                        metadata.motion_count,
+                        metadata.metadata.burst_id,
+                        metadata.metadata.live_photo_id,
                         metadata.asset_key,
                     ),
                 )
@@ -679,7 +691,7 @@ class PhotoDatabase:
                        p.lens_model, p.iso, p.exposure_seconds, p.aperture,
                        p.focal_length, p.preview_relative_path,
                        p.cached_preview_path, p.asset_paths, p.raw_count,
-                       p.sidecar_count,
+                       p.sidecar_count, p.motion_count, p.burst_id, p.live_photo_id,
                        projects.root_path
                 FROM photos AS p
                 JOIN projects ON projects.id = p.project_id
@@ -1327,6 +1339,9 @@ class PhotoDatabase:
             asset_paths=tuple(json.loads(row["asset_paths"] or "[]")),
             raw_count=row["raw_count"],
             sidecar_count=row["sidecar_count"],
+            motion_count=row["motion_count"],
+            burst_id=row["burst_id"],
+            live_photo_id=row["live_photo_id"],
         )
 
     @staticmethod

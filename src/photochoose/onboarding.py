@@ -35,6 +35,9 @@ class CoachMarkOverlay(QWidget):
         self.host = host
         self.target = target
         self._target_rect = QRect()
+        self._geometry_timer = QTimer(self)
+        self._geometry_timer.setSingleShot(True)
+        self._geometry_timer.timeout.connect(self._sync_geometry)
         self.setObjectName("coachMarkOverlay")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setMouseTracking(True)
@@ -107,7 +110,7 @@ class CoachMarkOverlay(QWidget):
         for widget in self._dismiss_widgets:
             widget.installEventFilter(self)
         self.host.installEventFilter(self)
-        self._target_watchers = self._target_ancestors()
+        self._target_watchers = (self.target,) if self.target is not None else ()
         for widget in self._target_watchers:
             widget.installEventFilter(self)
         self._sync_geometry()
@@ -127,7 +130,7 @@ class CoachMarkOverlay(QWidget):
                 QEvent.FontChange,
                 QEvent.StyleChange,
             ):
-                QTimer.singleShot(0, self._sync_geometry)
+                self._geometry_timer.start(0)
             elif event.type() in (QEvent.Close, QEvent.Hide):
                 self.abandoned.emit()
         elif watched in self._target_watchers and event.type() in (
@@ -138,7 +141,7 @@ class CoachMarkOverlay(QWidget):
             QEvent.LayoutRequest,
             QEvent.ParentChange,
         ):
-            QTimer.singleShot(0, self._sync_geometry)
+            self._geometry_timer.start(0)
         return super().eventFilter(watched, event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -189,17 +192,6 @@ class CoachMarkOverlay(QWidget):
         if clipped.width() < 8 or clipped.height() < 8:
             return QRect()
         return clipped
-
-    def _target_ancestors(self) -> tuple[QWidget, ...]:
-        if self.target is None:
-            return ()
-        ancestors: list[QWidget] = []
-        widget: Optional[QWidget] = self.target
-        while widget is not None and widget is not self.host:
-            ancestors.append(widget)
-            parent = widget.parentWidget()
-            widget = parent if isinstance(parent, QWidget) else None
-        return tuple(ancestors)
 
     def _position_card(self) -> None:
         margin = min(22, max(6, min(self.width(), self.height()) // 14))
@@ -262,6 +254,7 @@ class CoachMarkOverlay(QWidget):
         self.card.move(x, y)
 
     def detach(self) -> None:
+        self._geometry_timer.stop()
         self.host.removeEventFilter(self)
         for widget in self._target_watchers:
             widget.removeEventFilter(self)
@@ -363,11 +356,11 @@ class OnboardingController(QObject):
         return [
             HintStep(
                 "welcome",
-                "A private workspace for JPEG and RAW shoots",
-                "PhotoChoose's supported workflow is JPEG files and supported camera "
-                "RAW files only. HEIC, PNG, video, and other formats are outside the "
-                "supported workflow. Analysis runs locally and your original files are "
-                "never changed.",
+                "A private workspace for photo shoots",
+                "PhotoChoose supports JPEG, HEIC/HEIF, PNG, and supported camera RAW "
+                "files. A matching HEIC + MOV Live Photo stays one item and exports "
+                "together, but video playback and ordinary video files are not supported. "
+                "Analysis runs locally and your original files are never changed.",
                 lambda _window: True,
                 main_host,
                 lambda _window: None,

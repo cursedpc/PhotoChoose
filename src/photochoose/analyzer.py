@@ -17,6 +17,7 @@ from photochoose.analysis_profiles import (
     get_analysis_profile,
 )
 from photochoose.database import PhotoDatabase
+from photochoose.image_loader import ImageDecodeError, decode_analysis_bgr
 from photochoose.models import Decision, FaceEvidence, ObjectEvidence, Photo, PhotoView
 from photochoose.object_models import GeneralSubjectAnalyzer
 from photochoose.vision_models import ModelSubjectAnalyzer
@@ -218,8 +219,9 @@ class BaselineAnalyzer:
                 duplicate_of_id=original.id,
             )
 
-        image = cv2.imdecode(np.frombuffer(encoded, dtype=np.uint8), cv2.IMREAD_COLOR)
-        if image is None:
+        try:
+            image = decode_analysis_bgr(analysis_path, encoded)
+        except ImageDecodeError:
             return self._error_result("Image data cannot be decoded", content_hash=content_hash)
 
         image = self._downscale(image)
@@ -423,6 +425,19 @@ class BaselineAnalyzer:
             elif result.content_hash:
                 first_content_index[result.content_hash] = index
 
+        first_burst_index = {}
+        for index, (photo, _result) in enumerate(usable):
+            if not photo.burst_id:
+                continue
+            burst_key = (
+                Path(photo.relative_path).parent.as_posix().casefold(),
+                photo.burst_id.casefold(),
+            )
+            if burst_key in first_burst_index:
+                union(first_burst_index[burst_key], index)
+            else:
+                first_burst_index[burst_key] = index
+
         for left_index, (left_photo, left_result) in enumerate(usable):
             end = min(len(usable), left_index + GROUP_COMPARISON_WINDOW + 1)
             for right_index in range(left_index + 1, end):
@@ -521,6 +536,9 @@ class BaselineAnalyzer:
     def _group_description(
         cls, items: List[Tuple[Photo, AnalysisResult]]
     ) -> Tuple[str, str]:
+        burst_ids = {photo.burst_id.casefold() for photo, _result in items if photo.burst_id}
+        if len(burst_ids) == 1:
+            return "B", "Burst metadata · {0} frames".format(len(items))
         timestamps = []
         for photo, _result in items:
             if not photo.captured_at:

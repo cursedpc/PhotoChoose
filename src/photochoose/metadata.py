@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import re
 import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
+
+from photochoose.image_loader import is_heif_path, read_heif_metadata_blocks
 
 
 @dataclass(frozen=True)
@@ -17,10 +20,39 @@ class PhotoMetadata:
     exposure_seconds: Optional[float] = None
     aperture: Optional[float] = None
     focal_length: Optional[float] = None
+    burst_id: Optional[str] = None
+    live_photo_id: Optional[str] = None
 
 
 def read_photo_metadata(path: Path) -> PhotoMetadata:
     """Read a small, safe subset of TIFF/EXIF metadata without decoding pixels."""
+
+    if is_heif_path(path):
+        exif, xmp_blocks = read_heif_metadata_blocks(path)
+        metadata = _metadata_from_exif(exif)
+        burst_id = _xmp_identifier(xmp_blocks, ("burstuuid", "burstidentifier"))
+        live_photo_id = _xmp_identifier(
+            xmp_blocks,
+            ("assetidentifier", "contentidentifier", "livephotoidentifier"),
+        )
+        return replace(
+            metadata,
+            burst_id=burst_id,
+            live_photo_id=live_photo_id,
+        )
+
+    if path.suffix.casefold() in {".aae", ".xmp"}:
+        try:
+            blocks = (path.read_bytes(),)
+        except OSError:
+            return PhotoMetadata()
+        return PhotoMetadata(
+            burst_id=_xmp_identifier(blocks, ("burstuuid", "burstidentifier")),
+            live_photo_id=_xmp_identifier(
+                blocks,
+                ("assetidentifier", "contentidentifier", "livephotoidentifier"),
+            ),
+        )
 
     try:
         with path.open("rb") as stream:
@@ -34,12 +66,45 @@ def read_photo_metadata(path: Path) -> PhotoMetadata:
                 exif = None
     except OSError:
         return PhotoMetadata()
+    return _metadata_from_exif(exif)
+
+
+def _metadata_from_exif(exif: Optional[bytes]) -> PhotoMetadata:
     if not exif:
         return PhotoMetadata()
+    marker = exif.find(b"Exif\x00\x00")
+    if marker >= 0:
+        exif = exif[marker + 6 :]
+    else:
+        tiff_offsets = [
+            offset
+            for offset in (exif.find(b"II*\x00"), exif.find(b"MM\x00*"))
+            if offset >= 0
+        ]
+        if tiff_offsets:
+            exif = exif[min(tiff_offsets) :]
     try:
         return _parse_tiff_exif(exif)
     except (IndexError, OverflowError, struct.error, ValueError):
         return PhotoMetadata()
+
+
+def _xmp_identifier(blocks: tuple[bytes, ...], names: tuple[str, ...]) -> Optional[str]:
+    for block in blocks:
+        text = block[: 4 * 1024 * 1024].decode("utf-8", errors="ignore")
+        for name in names:
+            patterns = (
+                rf"(?:[\w.-]+:)?{name}\s*=\s*['\"]([^'\"]+)['\"]",
+                rf"<(?:[\w.-]+:)?{name}>\s*([^<]+?)\s*</",
+                rf"<key>\s*{name}\s*</key>\s*<string>\s*([^<]+?)\s*</string>",
+            )
+            for pattern in patterns:
+                match = re.search(pattern, text, flags=re.IGNORECASE)
+                if match:
+                    value = match.group(1).strip()
+                    if value:
+                        return value
+    return None
 
 
 def _jpeg_exif(stream) -> Optional[bytes]:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Optional, Tuple
 
 
@@ -101,6 +102,9 @@ class Photo:
     asset_paths: Tuple[str, ...] = ()
     raw_count: int = 0
     sidecar_count: int = 0
+    motion_count: int = 0
+    burst_id: Optional[str] = None
+    live_photo_id: Optional[str] = None
     closed_eye_count: int = 0
     uncertain_eye_count: int = 0
     subject_model: str = "none"
@@ -166,17 +170,34 @@ class Photo:
         parts = []
         if self.raw_count:
             parts.append("{0} RAW".format(self.raw_count))
-        preview_count = max(0, len(self.asset_paths) - self.raw_count - self.sidecar_count)
+        preview_count = max(
+            0,
+            len(self.asset_paths)
+            - self.raw_count
+            - self.sidecar_count
+            - self.motion_count,
+        )
         if preview_count:
             parts.append("{0} preview".format(preview_count))
+        if self.motion_count:
+            parts.append("{0} motion".format(self.motion_count))
         if self.sidecar_count:
             parts.append("{0} sidecar".format(self.sidecar_count))
         return " + ".join(parts) or "1 image"
 
     @property
     def asset_badge(self) -> Optional[str]:
-        if not self.raw_count:
-            return "XMP" if self.sidecar_count else None
-        preview_count = max(0, len(self.asset_paths) - self.raw_count - self.sidecar_count)
-        label = "RAW+JPG" if preview_count else "RAW"
-        return label + ("+XMP" if self.sidecar_count else "")
+        preview_extension = Path(self.display_path).suffix.casefold()
+        if self.motion_count:
+            return "RAW+LIVE" if self.raw_count else "LIVE"
+        if self.raw_count:
+            if preview_extension in {".heic", ".heif"}:
+                label = "RAW+HEIC"
+            elif self.preview_absolute_path:
+                label = "RAW+JPG"
+            else:
+                label = "RAW"
+            return label + ("+SIDE" if self.sidecar_count else "")
+        if preview_extension in {".heic", ".heif"}:
+            return "HEIC"
+        return "SIDE" if self.sidecar_count else None

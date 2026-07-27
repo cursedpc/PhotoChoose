@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections import Counter
 from typing import Optional, Sequence
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QImage, QImageReader, QPixmap, QResizeEvent
+from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtGui import QImage, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from photochoose.image_loader import read_qimage
 from photochoose.models import Photo
 
 
@@ -290,12 +291,7 @@ class SelectionInspector(QFrame):
         self.details_label.setText("\n".join(metrics))
 
     def _load_preview(self, path: str) -> None:
-        reader = QImageReader(path)
-        reader.setAutoTransform(True)
-        source_size = reader.size()
-        if source_size.isValid():
-            reader.setScaledSize(source_size.scaled(900, 600, Qt.KeepAspectRatio))
-        self._preview_image = reader.read()
+        self._preview_image = read_qimage(path, QSize(900, 600))
         if self._preview_image.isNull():
             self.preview_label.setText("Preview unavailable")
         else:

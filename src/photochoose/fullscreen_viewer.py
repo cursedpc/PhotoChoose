@@ -19,7 +19,6 @@ from PySide6.QtGui import (
     QContextMenuEvent,
     QImage,
     QImageIOHandler,
-    QImageReader,
     QMouseEvent,
     QPainter,
     QPen,
@@ -52,6 +51,7 @@ from PySide6.QtWidgets import (
 
 from photochoose.analysis_overlay import render_analysis_overlay
 from photochoose.database import PhotoDatabase
+from photochoose.image_loader import read_qimage
 from photochoose.keyboard_shortcuts import LayoutIndependentShortcutFilter
 from photochoose.models import Decision, Photo, PhotoView
 from photochoose.thumbnail_model import PhotoListModel
@@ -394,18 +394,7 @@ class FullscreenPhotoDialog(QDialog):
                 self._resize_current_image()
             return
 
-        reader = QImageReader(self._current_image_path)
-        reader.setAutoTransform(True)
-        source_size = reader.size()
-        if source_size.isValid():
-            reader.setScaledSize(
-                self._decode_size(
-                    source_size,
-                    canvas_pixels,
-                    self._transformation_rotates(reader.transformation()),
-                )
-            )
-        image = reader.read()
+        image = read_qimage(self._current_image_path, canvas_pixels)
         if image.isNull():
             self.image_label.setText("Could not open this photograph")
             return

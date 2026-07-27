@@ -18,7 +18,7 @@ datas.extend(
 
 binaries = []
 hiddenimports = []
-for package in ("openvino", "ai_edge_litert"):
+for package in ("openvino", "ai_edge_litert", "pi_heif"):
     package_datas, package_binaries, package_hiddenimports = collect_all(package)
     datas.extend(package_datas)
     binaries.extend(package_binaries)
@@ -26,6 +26,7 @@ for package in ("openvino", "ai_edge_litert"):
 
 datas.extend(copy_metadata("openvino"))
 datas.extend(copy_metadata("ai-edge-litert"))
+datas.extend(copy_metadata("pi-heif"))
 
 analysis = Analysis(
     [str(package_root / "__main__.py")],

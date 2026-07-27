@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import List, Optional, Sequence
 
-from PySide6.QtCore import Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QImage, QImageReader, QKeyEvent, QPixmap, QResizeEvent
+from PySide6.QtCore import QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QImage, QKeyEvent, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from photochoose.analysis_overlay import render_analysis_overlay
 from photochoose.database import PhotoDatabase
+from photochoose.image_loader import read_qimage
 from photochoose.keyboard_shortcuts import LayoutIndependentShortcutFilter
 from photochoose.models import Decision, Photo, PhotoView
 from photochoose.zoom_view import ZoomPanScrollArea
@@ -129,12 +130,7 @@ class ComparisonPane(QFrame):
         self._refresh_pixmap()
 
     def _load_image(self, path: str) -> None:
-        reader = QImageReader(path)
-        reader.setAutoTransform(True)
-        source_size = reader.size()
-        if source_size.isValid():
-            reader.setScaledSize(source_size.scaled(2200, 2200, Qt.KeepAspectRatio))
-        self.image = reader.read()
+        self.image = read_qimage(path, QSize(2200, 2200))
         if self.image.isNull():
             self.image_label.setText("Could not load photograph")
             self.image_label.adjustSize()

@@ -14,9 +14,10 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
-from PySide6.QtGui import QColor, QImage, QImageReader, QPixmap
+from PySide6.QtGui import QColor, QImage, QPixmap
 
 from photochoose.database import PhotoDatabase
+from photochoose.image_loader import read_qimage
 from photochoose.models import Photo, PhotoView
 
 THUMBNAIL_SIZE = QSize(220, 160)
@@ -35,12 +36,7 @@ class _ThumbnailTask(QRunnable):
         self.signals = _ThumbnailSignals()
 
     def run(self) -> None:
-        reader = QImageReader(self.path)
-        reader.setAutoTransform(True)
-        source_size = reader.size()
-        if source_size.isValid():
-            reader.setScaledSize(source_size.scaled(THUMBNAIL_SIZE, Qt.KeepAspectRatio))
-        image = reader.read()
+        image = read_qimage(self.path, THUMBNAIL_SIZE)
         self.signals.loaded.emit(self.photo_id, image)
 
 
