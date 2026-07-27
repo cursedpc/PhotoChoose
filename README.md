@@ -213,7 +213,7 @@ also emitted as a portable ZIP for target-machine diagnostics.
 
 The build must run on Windows; PyInstaller does not cross-build Windows executables from macOS.
 Version tags and manual workflow runs execute the release builders in
-`.github/workflows/windows-installer.yml`. A matching tag such as `v0.1.4` publishes the tested
+`.github/workflows/windows-installer.yml`. A matching tag such as `v0.1.5` publishes the tested
 installer, portable ZIP, native Intel and Apple Silicon macOS DMGs, and SHA-256 checksums directly
 to GitHub Releases. The macOS apps are built on matching native GitHub runners and are intentionally
 unsigned. Local build instructions are in `packaging/windows/README.md` and
