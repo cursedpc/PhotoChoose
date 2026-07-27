@@ -603,18 +603,26 @@ class GuiSmokeTests(unittest.TestCase):
             self.assertTrue(viewer.overlay_enabled)
             self.assertTrue(viewer.overlay_controls_scroll.isVisible())
             self.assertEqual(
-                ["Common", "All", "Off"],
+                ["Common", "All", "Hide"],
                 [
                     viewer.overlay_category_combos["faces"].itemText(index)
                     for index in range(3)
                 ],
             )
-            face_combo = viewer.overlay_item_combos[("faces", 0, -1)]
-            eye_combo = viewer.overlay_item_combos[("eyes", 0, 0)]
-            object_combo = viewer.overlay_item_combos[("objects", 0, -1)]
-            face_combo.setCurrentText("Hide")
-            eye_combo.setCurrentText("Show")
-            object_combo.setCurrentText("Show")
+            face_toggle = viewer.overlay_item_toggles[("faces", 0, -1)]
+            eye_toggle = viewer.overlay_item_toggles[("eyes", 0, 0)]
+            object_toggle = viewer.overlay_item_toggles[("objects", 0, -1)]
+            self.assertTrue(face_toggle.isChecked())
+            self.assertTrue(eye_toggle.isChecked())
+            self.assertFalse(object_toggle.isChecked())
+            face_toggle.setChecked(False)
+            viewer.overlay_category_combos["eyes"].setCurrentText("Hide")
+            eye_toggle = viewer.overlay_item_toggles[("eyes", 0, 0)]
+            object_toggle = viewer.overlay_item_toggles[("objects", 0, -1)]
+            self.assertFalse(eye_toggle.isChecked())
+            self.assertFalse(object_toggle.isChecked())
+            eye_toggle.setChecked(True)
+            object_toggle.setChecked(True)
             app.processEvents()
             first_visibility = viewer._current_overlay_visibility()
             self.assertEqual("hide", first_visibility.face_overrides[0][1].value)
@@ -623,11 +631,11 @@ class GuiSmokeTests(unittest.TestCase):
             viewer.next_photo()
             self.assertEqual("Common", viewer.overlay_category_combos["faces"].currentText())
             viewer.previous_photo()
-            self.assertEqual(
-                "Hide", viewer.overlay_item_combos[("faces", 0, -1)].currentText()
+            self.assertFalse(
+                viewer.overlay_item_toggles[("faces", 0, -1)].isChecked()
             )
-            self.assertEqual(
-                "Show", viewer.overlay_item_combos[("eyes", 0, 0)].currentText()
+            self.assertTrue(
+                viewer.overlay_item_toggles[("eyes", 0, 0)].isChecked()
             )
             viewer._set_analysis_overlay(False)
             self.assertFalse(viewer.overlay_controls_scroll.isVisible())

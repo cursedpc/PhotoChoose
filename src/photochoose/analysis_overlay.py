@@ -104,8 +104,6 @@ def paint_analysis_evidence(
         line_width = max(0.85, min(2.6, object_scale / 110.0))
         color = OBJECT_COLORS.get(item.importance, OBJECT_COLORS["background"])
         pen = QPen(color, line_width)
-        if item.importance == "background":
-            pen.setStyle(Qt.DashLine)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
         painter.drawRoundedRect(object_rect, 4.0, 4.0)
@@ -142,9 +140,7 @@ def paint_analysis_evidence(
         face_scale = min(face_rect.width(), face_rect.height())
         line_width = max(0.85, min(3.0, face_scale / 90.0))
         face_color = QColor("#4da3ff") if face.important else QColor("#9aa1aa")
-        pen = QPen(face_color, line_width * (1.15 if face.important else 0.85))
-        if not face.important:
-            pen.setStyle(Qt.DashLine)
+        pen = QPen(face_color, line_width * 1.15)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
         painter.drawRoundedRect(face_rect, 4.0, 4.0)
@@ -286,6 +282,61 @@ def _selected_evidence(
         if (face_index, eye_index) in selected_eye_keys
     )
     return objects, faces, eyes, crowded
+
+
+def is_evidence_item_visible(
+    photo: Photo,
+    visibility: AnalysisOverlayVisibility,
+    category: str,
+    first_index: int,
+    second_index: int = -1,
+) -> bool:
+    """Return the resolved state used by one individual fullscreen switch."""
+
+    common_objects, common_faces, _crowded = _visible_evidence(photo)
+    if category == "faces":
+        overrides = dict(visibility.face_overrides)
+        mode = overrides.get(first_index, EvidenceItemMode.AUTO)
+        common_ids = {id(item) for item in common_faces}
+        common = (
+            0 <= first_index < len(photo.subject_regions)
+            and id(photo.subject_regions[first_index]) in common_ids
+        )
+        category_mode = visibility.faces
+    elif category == "eyes":
+        overrides = {
+            (face_index, eye_index): item_mode
+            for face_index, eye_index, item_mode in visibility.eye_overrides
+        }
+        mode = overrides.get((first_index, second_index), EvidenceItemMode.AUTO)
+        common_ids = {id(item) for item in common_faces}
+        common = (
+            0 <= first_index < len(photo.subject_regions)
+            and 0 <= second_index < len(photo.subject_regions[first_index].eyes)
+            and id(photo.subject_regions[first_index]) in common_ids
+        )
+        category_mode = visibility.eyes
+    elif category == "objects":
+        overrides = dict(visibility.object_overrides)
+        mode = overrides.get(first_index, EvidenceItemMode.AUTO)
+        common_ids = {id(item) for item in common_objects}
+        common = (
+            0 <= first_index < len(photo.subject_objects)
+            and id(photo.subject_objects[first_index]) in common_ids
+        )
+        category_mode = visibility.objects
+    else:
+        raise ValueError("Unknown evidence category: {0}".format(category))
+
+    if mode == EvidenceItemMode.SHOW:
+        return True
+    if mode == EvidenceItemMode.HIDE:
+        return False
+    if category_mode == EvidenceDisplayMode.ALL:
+        return True
+    if category_mode == EvidenceDisplayMode.OFF:
+        return False
+    return common
 
 
 def _resolve_items(
