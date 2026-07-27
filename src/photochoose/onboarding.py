@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QSettings, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, QRect, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QFrame, QLabel, QScrollArea, QVBoxLayout, QWidget
 
@@ -107,8 +107,9 @@ class CoachMarkOverlay(QWidget):
         for widget in self._dismiss_widgets:
             widget.installEventFilter(self)
         self.host.installEventFilter(self)
-        if self.target is not None:
-            self.target.installEventFilter(self)
+        self._target_watchers = self._target_ancestors()
+        for widget in self._target_watchers:
+            widget.installEventFilter(self)
         self._sync_geometry()
         self.show()
         self.raise_()
@@ -129,11 +130,13 @@ class CoachMarkOverlay(QWidget):
                 QTimer.singleShot(0, self._sync_geometry)
             elif event.type() in (QEvent.Close, QEvent.Hide):
                 self.abandoned.emit()
-        elif watched is self.target and event.type() in (
+        elif watched in self._target_watchers and event.type() in (
             QEvent.Resize,
             QEvent.Move,
             QEvent.Show,
             QEvent.Hide,
+            QEvent.LayoutRequest,
+            QEvent.ParentChange,
         ):
             QTimer.singleShot(0, self._sync_geometry)
         return super().eventFilter(watched, event)
@@ -169,9 +172,34 @@ class CoachMarkOverlay(QWidget):
     def _mapped_target_rect(self) -> QRect:
         if self.target is None or not self.target.isVisible():
             return QRect()
-        top_left = self.mapFromGlobal(self.target.mapToGlobal(QPoint(0, 0)))
-        target_rect = QRect(top_left, self.target.size()).adjusted(-6, -6, 6, 6)
-        return target_rect.intersected(self.rect().adjusted(8, 8, -8, -8))
+        # Keep this conversion entirely in Qt's logical widget coordinates.
+        # A global-coordinate round trip mixes native pixels with logical pixels
+        # on some Windows DPI configurations and can leave a displaced line.
+        visible = self.target.visibleRegion().boundingRect()
+        if not visible.isValid():
+            return QRect()
+        host_top_left = self.target.mapTo(self.host, visible.topLeft())
+        host_bottom_right = self.target.mapTo(self.host, visible.bottomRight())
+        top_left = self.mapFrom(self.host, host_top_left)
+        bottom_right = self.mapFrom(self.host, host_bottom_right)
+        target_rect = QRect(top_left, bottom_right).normalized().adjusted(-6, -6, 6, 6)
+        clipped = target_rect.intersected(self.rect().adjusted(8, 8, -8, -8))
+        # Do not paint accidental edge slivers when a target is outside a
+        # scrolled or resized host while layouts are settling.
+        if clipped.width() < 8 or clipped.height() < 8:
+            return QRect()
+        return clipped
+
+    def _target_ancestors(self) -> tuple[QWidget, ...]:
+        if self.target is None:
+            return ()
+        ancestors: list[QWidget] = []
+        widget: Optional[QWidget] = self.target
+        while widget is not None and widget is not self.host:
+            ancestors.append(widget)
+            parent = widget.parentWidget()
+            widget = parent if isinstance(parent, QWidget) else None
+        return tuple(ancestors)
 
     def _position_card(self) -> None:
         margin = min(22, max(6, min(self.width(), self.height()) // 14))
@@ -235,8 +263,8 @@ class CoachMarkOverlay(QWidget):
 
     def detach(self) -> None:
         self.host.removeEventFilter(self)
-        if self.target is not None:
-            self.target.removeEventFilter(self)
+        for widget in self._target_watchers:
+            widget.removeEventFilter(self)
         self.hide()
         self.deleteLater()
 
