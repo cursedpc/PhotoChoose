@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
     QGestureEvent,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QListView,
     QMenu,
     QPushButton,
@@ -128,6 +129,11 @@ class EvidenceToggle(QCheckBox):
             painter.setBrush(Qt.NoBrush)
             painter.setPen(QPen(QColor("#83a9df"), 1.0))
             painter.drawRoundedRect(QRectF(0.5, 0.5, 33.0, 18.0), 8.5, 8.5)
+
+    def hitButton(self, position: QPoint) -> bool:
+        """Treat the complete painted switch track as its click target."""
+
+        return self.rect().contains(position)
 
 
 class FullscreenImageCanvas(QLabel):
@@ -253,6 +259,7 @@ class FullscreenPhotoDialog(QDialog):
         self._zoom_interaction_active = False
         self.overlay_enabled = False
         self._overlay_visibility_by_photo: Dict[int, AnalysisOverlayVisibility] = {}
+        self.overlay_global_combo: Optional[QComboBox] = None
         self.overlay_category_combos: Dict[str, QComboBox] = {}
         self.overlay_item_toggles: Dict[Tuple[str, int, int], EvidenceToggle] = {}
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
@@ -754,23 +761,37 @@ class FullscreenPhotoDialog(QDialog):
         )
 
     def _rebuild_overlay_controls(self) -> None:
-        while self.overlay_controls_layout.count():
-            item = self.overlay_controls_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
+        self._clear_overlay_layout(self.overlay_controls_layout)
         self.overlay_category_combos.clear()
         self.overlay_item_toggles.clear()
 
+        header = QHBoxLayout()
         heading = QLabel("Details")
         heading.setObjectName("overlayControlsTitle")
-        self.overlay_controls_layout.addWidget(heading)
+        header.addWidget(heading, 1)
+        self.overlay_global_combo = QComboBox()
+        self._configure_overlay_mode_combo(
+            self.overlay_global_combo,
+            heading,
+            "Change all evidence categories for this photo",
+        )
+        header.addWidget(self.overlay_global_combo)
+        self.overlay_controls_layout.addLayout(header)
 
         photo = self.current_photo
         if photo is None:
+            self.overlay_global_combo.setEnabled(False)
             self.overlay_controls_layout.addStretch(1)
             return
         visibility = self._current_overlay_visibility()
+        self._sync_overlay_global_combo(visibility)
+        self.overlay_global_combo.currentIndexChanged.connect(
+            lambda index, combo=self.overlay_global_combo: (
+                self._set_all_overlay_modes(EvidenceDisplayMode(combo.itemData(index)))
+                if index >= 0
+                else None
+            )
+        )
         self._add_overlay_section(
             "faces",
             "Faces",
@@ -825,6 +846,18 @@ class FullscreenPhotoDialog(QDialog):
         )
         self.overlay_controls_layout.addStretch(1)
 
+    @staticmethod
+    def _clear_overlay_layout(layout: QLayout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            child_layout = item.layout()
+            if child_layout is not None:
+                FullscreenPhotoDialog._clear_overlay_layout(child_layout)
+                child_layout.deleteLater()
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
     def _add_overlay_section(
         self,
         category: str,
@@ -843,15 +876,11 @@ class FullscreenPhotoDialog(QDialog):
         category_label.setObjectName("overlayCategoryTitle")
         category_row.addWidget(category_label, 1)
         category_combo = QComboBox()
-        category_combo.setToolTip(
-            "Common keeps the uncluttered overlay; All reveals every item; Hide hides it"
+        self._configure_overlay_mode_combo(
+            category_combo,
+            category_label,
+            "Common keeps the uncluttered overlay; All reveals every item; Hide hides it",
         )
-        for label, mode in (
-            ("Common", EvidenceDisplayMode.COMMON),
-            ("All", EvidenceDisplayMode.ALL),
-            ("Hide", EvidenceDisplayMode.OFF),
-        ):
-            category_combo.addItem(label, mode.value)
         category_combo.setCurrentIndex(category_combo.findData(category_mode.value))
         category_combo.currentIndexChanged.connect(
             lambda _index, name=category, combo=category_combo: self._set_overlay_category_mode(
@@ -888,6 +917,58 @@ class FullscreenPhotoDialog(QDialog):
             item_row.addWidget(toggle)
             section_layout.addLayout(item_row)
         self.overlay_controls_layout.addWidget(section)
+
+    @staticmethod
+    def _configure_overlay_mode_combo(
+        combo: QComboBox,
+        reference_label: QLabel,
+        tooltip: str,
+    ) -> None:
+        combo.setObjectName("overlayCategoryMode")
+        combo.setToolTip(tooltip)
+        for label, mode in (
+            ("Common", EvidenceDisplayMode.COMMON),
+            ("All", EvidenceDisplayMode.ALL),
+            ("Hide", EvidenceDisplayMode.OFF),
+        ):
+            combo.addItem(label, mode.value)
+        label_height = reference_label.fontMetrics().height()
+        option_width = max(
+            combo.fontMetrics().horizontalAdvance(combo.itemText(index))
+            for index in range(combo.count())
+        )
+        combo.ensurePolished()
+        combo.setFixedSize(option_width + 46, max(20, label_height + 4))
+
+    def _sync_overlay_global_combo(
+        self, visibility: AnalysisOverlayVisibility
+    ) -> None:
+        combo = self.overlay_global_combo
+        if combo is None:
+            return
+        has_overrides = bool(
+            visibility.face_overrides
+            or visibility.eye_overrides
+            or visibility.object_overrides
+        )
+        modes = {visibility.faces, visibility.eyes, visibility.objects}
+        mode = next(iter(modes)) if len(modes) == 1 and not has_overrides else None
+        combo.blockSignals(True)
+        combo.setPlaceholderText("Mixed")
+        combo.setCurrentIndex(-1 if mode is None else combo.findData(mode.value))
+        combo.blockSignals(False)
+
+    def _set_all_overlay_modes(self, mode: EvidenceDisplayMode) -> None:
+        photo = self.current_photo
+        if photo is None:
+            return
+        self._overlay_visibility_by_photo[photo.id] = AnalysisOverlayVisibility(
+            faces=mode,
+            eyes=mode,
+            objects=mode,
+        )
+        self._rebuild_overlay_controls()
+        self._render_current_image()
 
     def _set_overlay_category_mode(
         self, category: str, mode: EvidenceDisplayMode
@@ -946,6 +1027,7 @@ class FullscreenPhotoDialog(QDialog):
                 **{field_name: tuple(sorted(overrides.items()))},
             )
         self._overlay_visibility_by_photo[photo.id] = visibility
+        self._sync_overlay_global_combo(visibility)
         self._render_current_image()
 
     @Slot(int)

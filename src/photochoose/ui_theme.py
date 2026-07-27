@@ -70,9 +70,12 @@ QLabel#overlayItemLabel {
 }
 
 QScrollArea#fullscreenEvidenceControls QComboBox {
-    min-width: 62px;
-    padding: 4px 22px 4px 6px;
+    padding: 0 18px 0 6px;
 }
+
+QComboBox#overlayCategoryMode { min-height: 0; }
+
+QScrollArea#fullscreenEvidenceControls QComboBox::drop-down { width: 18px; }
 
 QLabel#fullscreenCanvas {
     background: #0b0c0e;

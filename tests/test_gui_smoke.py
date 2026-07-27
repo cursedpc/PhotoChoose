@@ -609,17 +609,70 @@ class GuiSmokeTests(unittest.TestCase):
             self.assertEqual(
                 ["Common", "All", "Hide"],
                 [
+                    viewer.overlay_global_combo.itemText(index)
+                    for index in range(3)
+                ],
+            )
+            QTest.mouseClick(
+                viewer.overlay_global_combo,
+                Qt.LeftButton,
+                pos=viewer.overlay_global_combo.rect().center(),
+            )
+            app.processEvents()
+            self.assertTrue(viewer.overlay_global_combo.view().isVisible())
+            QTest.keyClick(viewer.overlay_global_combo, Qt.Key_Escape)
+            self.assertEqual(
+                ["Common", "All", "Hide"],
+                [
                     viewer.overlay_category_combos["faces"].itemText(index)
                     for index in range(3)
                 ],
             )
+            faces_mode_combo = viewer.overlay_category_combos["faces"]
+            expected_option_width = max(
+                faces_mode_combo.fontMetrics().horizontalAdvance(
+                    faces_mode_combo.itemText(index)
+                )
+                for index in range(faces_mode_combo.count())
+            )
+            self.assertEqual(expected_option_width + 46, faces_mode_combo.width())
+            self.assertEqual(
+                max(20, faces_mode_combo.fontMetrics().height() + 4),
+                faces_mode_combo.height(),
+            )
+            QTest.mouseClick(
+                faces_mode_combo,
+                Qt.LeftButton,
+                pos=faces_mode_combo.rect().center(),
+            )
+            app.processEvents()
+            self.assertTrue(faces_mode_combo.view().isVisible())
+            QTest.keyClick(faces_mode_combo, Qt.Key_Escape)
+            viewer.overlay_global_combo.setCurrentText("All")
+            app.processEvents()
+            all_visibility = viewer._current_overlay_visibility()
+            self.assertEqual("all", all_visibility.faces.value)
+            self.assertEqual("all", all_visibility.eyes.value)
+            self.assertEqual("all", all_visibility.objects.value)
+            self.assertTrue(
+                viewer.overlay_item_toggles[("objects", 0, -1)].isChecked()
+            )
+            viewer.overlay_global_combo.setCurrentText("Common")
+            app.processEvents()
             face_toggle = viewer.overlay_item_toggles[("faces", 0, -1)]
             eye_toggle = viewer.overlay_item_toggles[("eyes", 0, 0)]
             object_toggle = viewer.overlay_item_toggles[("objects", 0, -1)]
             self.assertTrue(face_toggle.isChecked())
             self.assertTrue(eye_toggle.isChecked())
             self.assertFalse(object_toggle.isChecked())
-            face_toggle.setChecked(False)
+            QTest.mouseClick(face_toggle, Qt.LeftButton, pos=QPoint(2, 9))
+            self.assertFalse(face_toggle.isChecked())
+            self.assertEqual(-1, viewer.overlay_global_combo.currentIndex())
+            self.assertEqual("Mixed", viewer.overlay_global_combo.placeholderText())
+            QTest.mouseClick(face_toggle, Qt.LeftButton, pos=QPoint(31, 9))
+            self.assertTrue(face_toggle.isChecked())
+            QTest.mouseClick(face_toggle, Qt.LeftButton, pos=QPoint(2, 9))
+            self.assertFalse(face_toggle.isChecked())
             viewer.overlay_category_combos["eyes"].setCurrentText("Hide")
             eye_toggle = viewer.overlay_item_toggles[("eyes", 0, 0)]
             object_toggle = viewer.overlay_item_toggles[("objects", 0, -1)]
