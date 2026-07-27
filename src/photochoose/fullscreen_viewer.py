@@ -61,7 +61,7 @@ from photochoose.analysis_overlay import (
     EvidenceDisplayMode,
     EvidenceItemMode,
     is_evidence_item_visible,
-    render_analysis_overlay,
+    paint_analysis_evidence,
 )
 from photochoose.database import PhotoDatabase
 from photochoose.image_loader import read_qimage
@@ -128,6 +128,48 @@ class EvidenceToggle(QCheckBox):
             painter.setBrush(Qt.NoBrush)
             painter.setPen(QPen(QColor("#83a9df"), 1.0))
             painter.drawRoundedRect(QRectF(0.5, 0.5, 33.0, 18.0), 8.5, 8.5)
+
+
+class FullscreenImageCanvas(QLabel):
+    """Photo canvas that keeps analysis evidence crisp at every zoom level."""
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._overlay_photo: Optional[Photo] = None
+        self._overlay_visibility = AnalysisOverlayVisibility()
+        self._overlay_enabled = False
+
+    def set_analysis_overlay(
+        self,
+        photo: Optional[Photo],
+        visibility: AnalysisOverlayVisibility,
+        enabled: bool,
+    ) -> None:
+        self._overlay_photo = photo
+        self._overlay_visibility = visibility
+        self._overlay_enabled = enabled
+        self.update()
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        super().paintEvent(event)
+        pixmap = self.pixmap()
+        if (
+            not self._overlay_enabled
+            or self._overlay_photo is None
+            or pixmap is None
+            or pixmap.isNull()
+        ):
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.TextAntialiasing, True)
+        paint_analysis_evidence(
+            painter,
+            QRectF(self.contentsRect()),
+            self._overlay_photo,
+            show_labels=True,
+            visibility=self._overlay_visibility,
+        )
 
 
 class FullscreenCarouselDelegate(QStyledItemDelegate):
@@ -283,7 +325,7 @@ class FullscreenPhotoDialog(QDialog):
             self._zoom_interaction_finished
         )
         self.image_scroll.horizontalNavigationRequested.connect(self._move)
-        self.image_label = QLabel()
+        self.image_label = FullscreenImageCanvas()
         self.image_label.setObjectName("fullscreenCanvas")
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setScaledContents(True)
@@ -474,12 +516,11 @@ class FullscreenPhotoDialog(QDialog):
         if self._current_image.isNull():
             return
         display_image = self._current_image
-        if self.overlay_enabled and self.current_photo is not None:
-            display_image = render_analysis_overlay(
-                display_image,
-                self.current_photo,
-                self._current_overlay_visibility(),
-            )
+        self.image_label.set_analysis_overlay(
+            self.current_photo,
+            self._current_overlay_visibility(),
+            self.overlay_enabled,
+        )
         pixmap = QPixmap.fromImage(display_image)
         pixmap.setDevicePixelRatio(self._current_device_pixel_ratio)
         self.image_label.setPixmap(pixmap)

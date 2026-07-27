@@ -598,9 +598,13 @@ class GuiSmokeTests(unittest.TestCase):
                 ),
             )
             viewer._show_current_photo()
+            overlay_base_pixmap_key = viewer.image_label.pixmap().cacheKey()
             viewer.previous_button.setFocus()
             QTest.keyClick(viewer.previous_button, Qt.Key_O)
             self.assertTrue(viewer.overlay_enabled)
+            self.assertEqual(
+                overlay_base_pixmap_key, viewer.image_label.pixmap().cacheKey()
+            )
             self.assertTrue(viewer.overlay_controls_scroll.isVisible())
             self.assertEqual(
                 ["Common", "All", "Hide"],
