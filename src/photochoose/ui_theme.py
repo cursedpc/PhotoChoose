@@ -36,6 +36,44 @@ QFrame#comparisonPane {
 
 QDialog#fullscreenSurface { background: #101114; }
 
+QScrollArea#fullscreenEvidenceControls,
+QWidget#fullscreenEvidenceControlsBody {
+    background: #151619;
+    border: none;
+}
+
+QScrollArea#fullscreenEvidenceControls {
+    border-left: 1px solid #303136;
+}
+
+QLabel#overlayControlsTitle {
+    color: #eeeeef;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+QFrame#overlayEvidenceSection {
+    background: transparent;
+    border: none;
+    border-top: 1px solid #303136;
+    padding-top: 7px;
+}
+
+QLabel#overlayCategoryTitle {
+    color: #dedfe2;
+    font-weight: 600;
+}
+
+QLabel#overlayItemLabel {
+    color: #9fa2aa;
+    font-size: 11px;
+}
+
+QScrollArea#fullscreenEvidenceControls QComboBox {
+    min-width: 62px;
+    padding: 4px 22px 4px 6px;
+}
+
 QLabel#fullscreenCanvas {
     background: #0b0c0e;
     border: 1px solid #25262a;

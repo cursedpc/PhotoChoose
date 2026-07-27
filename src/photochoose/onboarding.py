@@ -425,8 +425,10 @@ class OnboardingController(QObject):
                 "Navigate and inspect at full size",
                 "Use Left/Right or the filmstrip to move through photos. The same K, R, "
                 "X, U, B, and O shortcuts work here. Zoom with the slider, a two-finger "
-                "pinch, or Ctrl + mouse wheel; drag the enlarged photo to pan. Press Esc "
-                "or Close to return.",
+                "pinch, or Ctrl + mouse wheel; drag the enlarged photo to pan. With O "
+                "active, the right-side Faces, Eyes, and Objects menus can show all, "
+                "hide, or individually override evidence for this photo. Press Esc or "
+                "Close to return.",
                 lambda window: window.fullscreen_dialog is not None
                 and window.fullscreen_dialog.isVisible(),
                 lambda window: window.fullscreen_dialog,

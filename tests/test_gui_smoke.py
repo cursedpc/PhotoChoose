@@ -4,6 +4,7 @@ import os
 import tempfile
 import time
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -35,7 +36,13 @@ from photochoose.analysis_profiles import ANALYSIS_VERSION  # noqa: E402
 from photochoose.app import create_application  # noqa: E402
 from photochoose.fullscreen_viewer import FullscreenPhotoDialog  # noqa: E402
 from photochoose.main_window import _progress_message  # noqa: E402
-from photochoose.models import Decision, PhotoView  # noqa: E402
+from photochoose.models import (  # noqa: E402
+    Decision,
+    EyeEvidence,
+    FaceEvidence,
+    ObjectEvidence,
+    PhotoView,
+)
 from photochoose.selection_inspector import SelectionInspector  # noqa: E402
 
 
@@ -566,9 +573,64 @@ class GuiSmokeTests(unittest.TestCase):
                 "Analysis overlay",
                 [action.text() for action in viewer._context_menu().actions()],
             )
+            overlay_eye = EyeEvidence(
+                state="open",
+                aperture=0.2,
+                openness_score=0.9,
+                focus_score=100.0,
+                landmarks=((0.3, 0.3), (0.34, 0.3), (0.32, 0.33)),
+            )
+            viewer.photos[0] = replace(
+                viewer.photos[0],
+                subject_regions=(
+                    FaceEvidence(
+                        (0.2, 0.2, 0.3, 0.4),
+                        0.95,
+                        120.0,
+                        True,
+                        (overlay_eye,),
+                    ),
+                ),
+                subject_objects=(
+                    ObjectEvidence(
+                        "person", (0.2, 0.2, 0.3, 0.4), 0.9, 120.0, "primary"
+                    ),
+                ),
+            )
+            viewer._show_current_photo()
             viewer.previous_button.setFocus()
             QTest.keyClick(viewer.previous_button, Qt.Key_O)
             self.assertTrue(viewer.overlay_enabled)
+            self.assertTrue(viewer.overlay_controls_scroll.isVisible())
+            self.assertEqual(
+                ["Common", "All", "Off"],
+                [
+                    viewer.overlay_category_combos["faces"].itemText(index)
+                    for index in range(3)
+                ],
+            )
+            face_combo = viewer.overlay_item_combos[("faces", 0, -1)]
+            eye_combo = viewer.overlay_item_combos[("eyes", 0, 0)]
+            object_combo = viewer.overlay_item_combos[("objects", 0, -1)]
+            face_combo.setCurrentText("Hide")
+            eye_combo.setCurrentText("Show")
+            object_combo.setCurrentText("Show")
+            app.processEvents()
+            first_visibility = viewer._current_overlay_visibility()
+            self.assertEqual("hide", first_visibility.face_overrides[0][1].value)
+            self.assertEqual("show", first_visibility.eye_overrides[0][2].value)
+            self.assertEqual("show", first_visibility.object_overrides[0][1].value)
+            viewer.next_photo()
+            self.assertEqual("Common", viewer.overlay_category_combos["faces"].currentText())
+            viewer.previous_photo()
+            self.assertEqual(
+                "Hide", viewer.overlay_item_combos[("faces", 0, -1)].currentText()
+            )
+            self.assertEqual(
+                "Show", viewer.overlay_item_combos[("eyes", 0, 0)].currentText()
+            )
+            viewer._set_analysis_overlay(False)
+            self.assertFalse(viewer.overlay_controls_scroll.isVisible())
             viewer.close()
 
             comparison_index = window.photo_model.index(0, 0)

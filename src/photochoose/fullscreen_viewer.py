@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import List, Optional, Sequence
+from dataclasses import replace
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from PySide6.QtCore import (
     QEvent,
@@ -31,13 +32,16 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QComboBox,
     QDialog,
+    QFrame,
     QGestureEvent,
     QHBoxLayout,
     QLabel,
     QListView,
     QMenu,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSlider,
     QStyle,
@@ -49,7 +53,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from photochoose.analysis_overlay import render_analysis_overlay
+from photochoose.analysis_overlay import (
+    AnalysisOverlayVisibility,
+    EvidenceDisplayMode,
+    EvidenceItemMode,
+    render_analysis_overlay,
+)
 from photochoose.database import PhotoDatabase
 from photochoose.image_loader import read_qimage
 from photochoose.keyboard_shortcuts import LayoutIndependentShortcutFilter
@@ -170,6 +179,9 @@ class FullscreenPhotoDialog(QDialog):
         self._center_after_render = False
         self._zoom_interaction_active = False
         self.overlay_enabled = False
+        self._overlay_visibility_by_photo: Dict[int, AnalysisOverlayVisibility] = {}
+        self.overlay_category_combos: Dict[str, QComboBox] = {}
+        self.overlay_item_combos: Dict[Tuple[str, int, int], QComboBox] = {}
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.setObjectName("fullscreenSurface")
         self.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -249,7 +261,27 @@ class FullscreenPhotoDialog(QDialog):
         self.image_label.setContextMenuPolicy(Qt.CustomContextMenu)
         self.image_label.customContextMenuRequested.connect(self._show_image_context_menu)
         self.image_scroll.setWidget(self.image_label)
-        layout.addWidget(self.image_scroll, 1)
+
+        image_area = QHBoxLayout()
+        image_area.setContentsMargins(0, 0, 0, 0)
+        image_area.setSpacing(0)
+        image_area.addWidget(self.image_scroll, 1)
+        self.overlay_controls_scroll = QScrollArea()
+        self.overlay_controls_scroll.setObjectName("fullscreenEvidenceControls")
+        self.overlay_controls_scroll.setWidgetResizable(True)
+        self.overlay_controls_scroll.setFrameShape(QFrame.NoFrame)
+        self.overlay_controls_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.overlay_controls_scroll.setMinimumWidth(190)
+        self.overlay_controls_scroll.setMaximumWidth(270)
+        self.overlay_controls_body = QWidget()
+        self.overlay_controls_body.setObjectName("fullscreenEvidenceControlsBody")
+        self.overlay_controls_layout = QVBoxLayout(self.overlay_controls_body)
+        self.overlay_controls_layout.setContentsMargins(14, 12, 12, 12)
+        self.overlay_controls_layout.setSpacing(12)
+        self.overlay_controls_scroll.setWidget(self.overlay_controls_body)
+        self.overlay_controls_scroll.hide()
+        image_area.addWidget(self.overlay_controls_scroll)
+        layout.addLayout(image_area, 1)
 
         self._resize_decode_timer = QTimer(self)
         self._resize_decode_timer.setSingleShot(True)
@@ -342,6 +374,8 @@ class FullscreenPhotoDialog(QDialog):
             self.footer_label.setText("Esc to close")
             self.image_label.setText("No photograph to display")
             self.carousel_position_label.setText("No photos")
+            self._rebuild_overlay_controls()
+            self._update_overlay_controls_visibility()
             self._update_controls()
             return
         self.setWindowTitle(photo.filename)
@@ -351,6 +385,8 @@ class FullscreenPhotoDialog(QDialog):
             "← → navigate   ·   K Keep   R Review   X Reject   "
             "B Best   O evidence   Esc close"
         )
+        self._rebuild_overlay_controls()
+        self._update_overlay_controls_visibility()
         self._load_image(photo.display_path)
         self._update_controls()
         self._sync_carousel()
@@ -408,7 +444,11 @@ class FullscreenPhotoDialog(QDialog):
             return
         display_image = self._current_image
         if self.overlay_enabled and self.current_photo is not None:
-            display_image = render_analysis_overlay(display_image, self.current_photo)
+            display_image = render_analysis_overlay(
+                display_image,
+                self.current_photo,
+                self._current_overlay_visibility(),
+            )
         pixmap = QPixmap.fromImage(display_image)
         pixmap.setDevicePixelRatio(self._current_device_pixel_ratio)
         self.image_label.setPixmap(pixmap)
@@ -498,6 +538,9 @@ class FullscreenPhotoDialog(QDialog):
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
+        self.overlay_controls_scroll.setFixedWidth(
+            max(190, min(270, round(self.width() * 0.24)))
+        )
         self._resize_current_image()
         self._resize_decode_timer.start()
 
@@ -621,6 +664,216 @@ class FullscreenPhotoDialog(QDialog):
     @Slot(bool)
     def _set_analysis_overlay(self, enabled: bool) -> None:
         self.overlay_enabled = enabled
+        self._update_overlay_controls_visibility()
+        self._render_current_image()
+        QTimer.singleShot(0, lambda: self._decode_current_image(force=True))
+
+    def _current_overlay_visibility(self) -> AnalysisOverlayVisibility:
+        photo = self.current_photo
+        if photo is None:
+            return AnalysisOverlayVisibility()
+        return self._overlay_visibility_by_photo.get(
+            photo.id, AnalysisOverlayVisibility()
+        )
+
+    def _update_overlay_controls_visibility(self) -> None:
+        self.overlay_controls_scroll.setVisible(
+            self.overlay_enabled and self.current_photo is not None
+        )
+
+    def _rebuild_overlay_controls(self) -> None:
+        while self.overlay_controls_layout.count():
+            item = self.overlay_controls_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self.overlay_category_combos.clear()
+        self.overlay_item_combos.clear()
+
+        heading = QLabel("Overlay")
+        heading.setObjectName("overlayControlsTitle")
+        self.overlay_controls_layout.addWidget(heading)
+        note = QLabel("Settings for this photo")
+        note.setObjectName("mutedLabel")
+        self.overlay_controls_layout.addWidget(note)
+
+        photo = self.current_photo
+        if photo is None:
+            self.overlay_controls_layout.addStretch(1)
+            return
+        visibility = self._current_overlay_visibility()
+        self._add_overlay_section(
+            "faces",
+            "Faces",
+            visibility.faces,
+            tuple(
+                (
+                    (index, -1),
+                    "Face {0}{1}".format(
+                        index + 1, " · primary" if face.important else ""
+                    ),
+                    dict(visibility.face_overrides).get(
+                        index, EvidenceItemMode.AUTO
+                    ),
+                )
+                for index, face in enumerate(photo.subject_regions)
+            ),
+        )
+        self._add_overlay_section(
+            "eyes",
+            "Eyes",
+            visibility.eyes,
+            tuple(
+                (
+                    (face_index, eye_index),
+                    "Face {0} · Eye {1} · {2}".format(
+                        face_index + 1, eye_index + 1, eye.state.title()
+                    ),
+                    {
+                        (saved_face, saved_eye): mode
+                        for saved_face, saved_eye, mode in visibility.eye_overrides
+                    }.get((face_index, eye_index), EvidenceItemMode.AUTO),
+                )
+                for face_index, face in enumerate(photo.subject_regions)
+                for eye_index, eye in enumerate(face.eyes)
+            ),
+        )
+        self._add_overlay_section(
+            "objects",
+            "Objects",
+            visibility.objects,
+            tuple(
+                (
+                    (index, -1),
+                    "{0} {1} · {2}".format(
+                        index + 1, item.label, item.importance
+                    ),
+                    dict(visibility.object_overrides).get(
+                        index, EvidenceItemMode.AUTO
+                    ),
+                )
+                for index, item in enumerate(photo.subject_objects)
+            ),
+        )
+        self.overlay_controls_layout.addStretch(1)
+
+    def _add_overlay_section(
+        self,
+        category: str,
+        title: str,
+        category_mode: EvidenceDisplayMode,
+        items: Tuple[Tuple[Tuple[int, int], str, EvidenceItemMode], ...],
+    ) -> None:
+        section = QFrame()
+        section.setObjectName("overlayEvidenceSection")
+        section_layout = QVBoxLayout(section)
+        section_layout.setContentsMargins(0, 0, 0, 0)
+        section_layout.setSpacing(5)
+
+        category_row = QHBoxLayout()
+        category_label = QLabel(title)
+        category_label.setObjectName("overlayCategoryTitle")
+        category_row.addWidget(category_label, 1)
+        category_combo = QComboBox()
+        category_combo.setToolTip(
+            "Common keeps the uncluttered overlay; All reveals every item; Off hides it"
+        )
+        for label, mode in (
+            ("Common", EvidenceDisplayMode.COMMON),
+            ("All", EvidenceDisplayMode.ALL),
+            ("Off", EvidenceDisplayMode.OFF),
+        ):
+            category_combo.addItem(label, mode.value)
+        category_combo.setCurrentIndex(category_combo.findData(category_mode.value))
+        category_combo.currentIndexChanged.connect(
+            lambda _index, name=category, combo=category_combo: self._set_overlay_category_mode(
+                name, EvidenceDisplayMode(combo.currentData())
+            )
+        )
+        self.overlay_category_combos[category] = category_combo
+        category_row.addWidget(category_combo)
+        section_layout.addLayout(category_row)
+
+        if not items:
+            empty = QLabel("None detected")
+            empty.setObjectName("overlayItemLabel")
+            section_layout.addWidget(empty)
+        for key, label_text, item_mode in items:
+            item_row = QHBoxLayout()
+            item_row.setContentsMargins(8, 0, 0, 0)
+            label = QLabel(label_text)
+            label.setObjectName("overlayItemLabel")
+            label.setToolTip(label_text)
+            item_row.addWidget(label, 1)
+            combo = QComboBox()
+            combo.setToolTip("Auto follows the section; Show or Hide overrides it")
+            for text, mode in (
+                ("Auto", EvidenceItemMode.AUTO),
+                ("Show", EvidenceItemMode.SHOW),
+                ("Hide", EvidenceItemMode.HIDE),
+            ):
+                combo.addItem(text, mode.value)
+            combo.setCurrentIndex(combo.findData(item_mode.value))
+            combo.currentIndexChanged.connect(
+                lambda _index, name=category, item_key=key, control=combo: (
+                    self._set_overlay_item_mode(
+                        name, item_key, EvidenceItemMode(control.currentData())
+                    )
+                )
+            )
+            self.overlay_item_combos[(category, key[0], key[1])] = combo
+            item_row.addWidget(combo)
+            section_layout.addLayout(item_row)
+        self.overlay_controls_layout.addWidget(section)
+
+    def _set_overlay_category_mode(
+        self, category: str, mode: EvidenceDisplayMode
+    ) -> None:
+        photo = self.current_photo
+        if photo is None:
+            return
+        visibility = replace(self._current_overlay_visibility(), **{category: mode})
+        self._overlay_visibility_by_photo[photo.id] = visibility
+        self._render_current_image()
+
+    def _set_overlay_item_mode(
+        self,
+        category: str,
+        key: Tuple[int, int],
+        mode: EvidenceItemMode,
+    ) -> None:
+        photo = self.current_photo
+        if photo is None:
+            return
+        visibility = self._current_overlay_visibility()
+        if category == "eyes":
+            overrides = {
+                (face_index, eye_index): saved_mode
+                for face_index, eye_index, saved_mode in visibility.eye_overrides
+            }
+            if mode == EvidenceItemMode.AUTO:
+                overrides.pop(key, None)
+            else:
+                overrides[key] = mode
+            visibility = replace(
+                visibility,
+                eye_overrides=tuple(
+                    (face_index, eye_index, saved_mode)
+                    for (face_index, eye_index), saved_mode in sorted(overrides.items())
+                ),
+            )
+        else:
+            field_name = "face_overrides" if category == "faces" else "object_overrides"
+            overrides = dict(getattr(visibility, field_name))
+            if mode == EvidenceItemMode.AUTO:
+                overrides.pop(key[0], None)
+            else:
+                overrides[key[0]] = mode
+            visibility = replace(
+                visibility,
+                **{field_name: tuple(sorted(overrides.items()))},
+            )
+        self._overlay_visibility_by_photo[photo.id] = visibility
         self._render_current_image()
 
     @Slot(int)
