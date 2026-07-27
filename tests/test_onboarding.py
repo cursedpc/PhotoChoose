@@ -76,7 +76,7 @@ class OnboardingTests(unittest.TestCase):
             host = QWidget()
             host.show()
             steps = OnboardingController._build_steps()
-            for width, height in ((320, 190), (480, 280), (760, 520)):
+            for width, height in ((300, 170), (320, 190), (480, 280), (760, 520)):
                 host.resize(width, height)
                 app.processEvents()
                 for step_index, step in enumerate(steps, start=1):

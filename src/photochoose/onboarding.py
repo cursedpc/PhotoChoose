@@ -191,8 +191,13 @@ class CoachMarkOverlay(QWidget):
         return clipped
 
     def _position_card(self) -> None:
-        margin = min(22, max(6, min(self.width(), self.height()) // 14))
-        gap = 16
+        very_compact = self.height() < 240 or self.width() < 360
+        margin = (
+            4
+            if very_compact
+            else min(22, max(6, min(self.width(), self.height()) // 14))
+        )
+        gap = 8 if very_compact else 16
         available_width = max(1, self.width() - margin * 2)
         available_height = max(1, self.height() - margin * 2)
         card_width_limit = 560 if available_height < 360 else 440
@@ -200,19 +205,24 @@ class CoachMarkOverlay(QWidget):
         self.card.setFixedWidth(card_width)
 
         compact = available_height < 300 or available_width < 360
-        card_padding = 10 if compact else 18
+        card_padding = 6 if very_compact else (10 if compact else 18)
         self.card.layout().setContentsMargins(
             card_padding,
             card_padding,
             card_padding,
-            max(8, card_padding - 2),
+            card_padding if very_compact else max(8, card_padding - 2),
         )
-        self.card.layout().setSpacing(5 if compact else 9)
-        self.card_content.layout().setSpacing(5 if compact else 9)
+        self.card.layout().setSpacing(3 if very_compact else (5 if compact else 9))
+        self.card_content.layout().setContentsMargins(
+            0, 0, 0 if very_compact else 4, 0
+        )
+        self.card_content.layout().setSpacing(
+            3 if very_compact else (5 if compact else 9)
+        )
 
         content_height = 1
         card_height = 1
-        for scale in (1.0, 0.92, 0.84, 0.76, 0.68, 0.60):
+        for scale in (1.0, 0.92, 0.84, 0.76, 0.68, 0.60, 0.52, 0.46):
             self._set_card_font_scale(scale)
             card_margins = self.card.layout().contentsMargins()
             content_width = max(
@@ -287,7 +297,7 @@ class CoachMarkOverlay(QWidget):
         ):
             label.ensurePolished()
             font = label.font()
-            font.setPixelSize(max(8, round(base_size * scale)))
+            font.setPixelSize(max(7, round(base_size * scale)))
             label.setFont(font)
 
     def detach(self) -> None:
