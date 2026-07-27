@@ -4,9 +4,9 @@ import os
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from PySide6.QtCore import QEvent, QObject, QRect, QSettings, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QFrame, QLabel, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
 
 
 @dataclass(frozen=True)
@@ -34,6 +34,8 @@ class CoachMarkOverlay(QWidget):
         super().__init__(host)
         self.host = host
         self.target = target
+        self._dismiss_widgets: tuple[QWidget, ...] = ()
+        self._target_watchers: tuple[QWidget, ...] = ()
         self._target_rect = QRect()
         self._geometry_timer = QTimer(self)
         self._geometry_timer.setSingleShot(True)
@@ -52,13 +54,6 @@ class CoachMarkOverlay(QWidget):
         progress_label.setObjectName("coachMarkProgress")
         card_layout.addWidget(progress_label)
 
-        self.card_scroll = QScrollArea()
-        self.card_scroll.setObjectName("coachMarkScroll")
-        self.card_scroll.setWidgetResizable(True)
-        self.card_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.card_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.card_scroll.setFrameShape(QFrame.NoFrame)
-
         self.card_content = QWidget()
         self.card_content.setObjectName("coachMarkContent")
         content_layout = QVBoxLayout(self.card_content)
@@ -75,8 +70,7 @@ class CoachMarkOverlay(QWidget):
         self.body_label.setWordWrap(True)
         self.body_label.setTextFormat(Qt.PlainText)
         content_layout.addWidget(self.body_label)
-        self.card_scroll.setWidget(self.card_content)
-        card_layout.addWidget(self.card_scroll, 1)
+        card_layout.addWidget(self.card_content)
 
         continue_label = QLabel("Click anywhere to continue")
         continue_label.setObjectName("coachMarkContinue")
@@ -86,13 +80,13 @@ class CoachMarkOverlay(QWidget):
             "QFrame#coachMarkCard {"
             " background: #25272c; border: 1px solid #565a63; border-radius: 4px;"
             "}"
-            "QLabel#coachMarkProgress { color: #8faed8; font-size: 11px;"
+            "QLabel#coachMarkProgress { color: #8faed8;"
             " font-weight: 600; }"
-            "QLabel#coachMarkTitle { color: #f3f4f6; font-size: 17px;"
+            "QLabel#coachMarkTitle { color: #f3f4f6;"
             " font-weight: 600; }"
-            "QLabel#coachMarkBody { color: #d0d2d7; font-size: 13px; }"
-            "QLabel#coachMarkContinue { color: #9498a1; font-size: 11px; }"
-            "QScrollArea#coachMarkScroll, QWidget#coachMarkContent {"
+            "QLabel#coachMarkBody { color: #d0d2d7; }"
+            "QLabel#coachMarkContinue { color: #9498a1; }"
+            "QWidget#coachMarkContent {"
             " background: transparent; border: 0;"
             "}"
         )
@@ -100,8 +94,6 @@ class CoachMarkOverlay(QWidget):
         self._dismiss_widgets = (
             self.card,
             progress_label,
-            self.card_scroll,
-            self.card_scroll.viewport(),
             self.card_content,
             self.title_label,
             self.body_label,
@@ -175,17 +167,22 @@ class CoachMarkOverlay(QWidget):
     def _mapped_target_rect(self) -> QRect:
         if self.target is None or not self.target.isVisible():
             return QRect()
-        # Keep this conversion entirely in Qt's logical widget coordinates.
-        # A global-coordinate round trip mixes native pixels with logical pixels
-        # on some Windows DPI configurations and can leave a displaced line.
-        visible = self.target.visibleRegion().boundingRect()
-        if not visible.isValid():
-            return QRect()
-        host_top_left = self.target.mapTo(self.host, visible.topLeft())
-        host_bottom_right = self.target.mapTo(self.host, visible.bottomRight())
-        top_left = self.mapFrom(self.host, host_top_left)
-        bottom_right = self.mapFrom(self.host, host_bottom_right)
-        target_rect = QRect(top_left, bottom_right).normalized().adjusted(-6, -6, 6, 6)
+        # visibleRegion() treats this overlay as an occluding sibling after it is
+        # raised and can collapse a perfectly visible target into an edge sliver.
+        # Map the widget rect and explicitly clip it through its visible ancestors.
+        host_top_left = self.target.mapTo(self.host, QPoint(0, 0))
+        host_rect = QRect(host_top_left, self.target.size())
+        ancestor = self.target.parentWidget()
+        while ancestor is not None and ancestor is not self.host:
+            if not ancestor.isVisible():
+                return QRect()
+            ancestor_top_left = ancestor.mapTo(self.host, QPoint(0, 0))
+            host_rect = host_rect.intersected(QRect(ancestor_top_left, ancestor.size()))
+            if not host_rect.isValid():
+                return QRect()
+            ancestor = ancestor.parentWidget()
+        top_left = self.mapFrom(self.host, host_rect.topLeft())
+        target_rect = QRect(top_left, host_rect.size()).adjusted(-6, -6, 6, 6)
         clipped = target_rect.intersected(self.rect().adjusted(8, 8, -8, -8))
         # Do not paint accidental edge slivers when a target is outside a
         # scrolled or resized host while layouts are settling.
@@ -198,34 +195,62 @@ class CoachMarkOverlay(QWidget):
         gap = 16
         available_width = max(1, self.width() - margin * 2)
         available_height = max(1, self.height() - margin * 2)
-        card_width = min(400, available_width)
+        card_width_limit = 560 if available_height < 360 else 440
+        card_width = min(card_width_limit, available_width)
         self.card.setFixedWidth(card_width)
 
-        card_margins = self.card.layout().contentsMargins()
-        scroll_bar_width = self.card_scroll.verticalScrollBar().sizeHint().width()
-        content_width = max(
-            1,
-            card_width
-            - card_margins.left()
-            - card_margins.right()
-            - scroll_bar_width,
+        compact = available_height < 300 or available_width < 360
+        card_padding = 10 if compact else 18
+        self.card.layout().setContentsMargins(
+            card_padding,
+            card_padding,
+            card_padding,
+            max(8, card_padding - 2),
         )
-        self.card_content.setFixedWidth(content_width)
-        self.card_content.adjustSize()
+        self.card.layout().setSpacing(5 if compact else 9)
+        self.card_content.layout().setSpacing(5 if compact else 9)
 
-        fixed_height = (
-            card_margins.top()
-            + card_margins.bottom()
-            + self.card.layout().spacing() * 2
-            + self.card.layout().itemAt(0).widget().sizeHint().height()
-            + self.card.layout().itemAt(2).widget().sizeHint().height()
-        )
-        scroll_height = min(
-            self.card_content.sizeHint().height() + 2,
-            max(1, available_height - fixed_height),
-        )
-        self.card_scroll.setFixedHeight(scroll_height)
-        self.card.adjustSize()
+        content_height = 1
+        card_height = 1
+        for scale in (1.0, 0.92, 0.84, 0.76, 0.68, 0.60):
+            self._set_card_font_scale(scale)
+            card_margins = self.card.layout().contentsMargins()
+            content_width = max(
+                1,
+                card_width - card_margins.left() - card_margins.right(),
+            )
+            content_margins = self.card_content.layout().contentsMargins()
+            text_width = max(
+                1,
+                content_width - content_margins.left() - content_margins.right(),
+            )
+            title_height = max(
+                self.title_label.sizeHint().height(),
+                self.title_label.heightForWidth(text_width),
+            )
+            body_height = max(
+                self.body_label.sizeHint().height(),
+                self.body_label.heightForWidth(text_width),
+            )
+            content_height = (
+                content_margins.top()
+                + content_margins.bottom()
+                + self.card_content.layout().spacing()
+                + title_height
+                + body_height
+            )
+            fixed_height = (
+                card_margins.top()
+                + card_margins.bottom()
+                + self.card.layout().spacing() * 2
+                + self.card.layout().itemAt(0).widget().sizeHint().height()
+                + self.card.layout().itemAt(2).widget().sizeHint().height()
+            )
+            card_height = fixed_height + content_height
+            if card_height <= available_height:
+                break
+        self.card_content.setFixedSize(content_width, content_height)
+        self.card.setFixedSize(card_width, card_height)
         card_size = self.card.size()
 
         if not self._target_rect.isValid():
@@ -253,10 +278,24 @@ class CoachMarkOverlay(QWidget):
         y = min(max(margin, y), max(margin, self.height() - margin - card_size.height()))
         self.card.move(x, y)
 
+    def _set_card_font_scale(self, scale: float) -> None:
+        for label, base_size in (
+            (self.card.layout().itemAt(0).widget(), 11),
+            (self.title_label, 17),
+            (self.body_label, 13),
+            (self.card.layout().itemAt(2).widget(), 11),
+        ):
+            label.ensurePolished()
+            font = label.font()
+            font.setPixelSize(max(8, round(base_size * scale)))
+            label.setFont(font)
+
     def detach(self) -> None:
         self._geometry_timer.stop()
         self.host.removeEventFilter(self)
         for widget in self._target_watchers:
+            widget.removeEventFilter(self)
+        for widget in self._dismiss_widgets:
             widget.removeEventFilter(self)
         self.hide()
         self.deleteLater()
@@ -425,8 +464,10 @@ class OnboardingController(QObject):
                 "Navigate and inspect at full size",
                 "Use Left/Right or the filmstrip to move through photos. The same K, R, "
                 "X, U, B, and O shortcuts work here. Zoom with the slider, a two-finger "
-                "pinch, or Ctrl + mouse wheel; drag the enlarged photo to pan. Press Esc "
-                "or Close to return.",
+                "pinch, or Ctrl + mouse wheel; drag the enlarged photo to pan. With O "
+                "active, the right-side Faces, Eyes, and Objects menus can show all, "
+                "hide, or individually override evidence for this photo. Press Esc or "
+                "Close to return.",
                 lambda window: window.fullscreen_dialog is not None
                 and window.fullscreen_dialog.isVisible(),
                 lambda window: window.fullscreen_dialog,

@@ -10,9 +10,9 @@ import numpy as np
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QPoint, QRect, QSettings, Qt  # noqa: E402
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QRect, QSettings, Qt  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
-from PySide6.QtWidgets import QWidget  # noqa: E402
+from PySide6.QtWidgets import QScrollArea, QWidget  # noqa: E402
 
 from photochoose.app import create_application  # noqa: E402
 from photochoose.onboarding import CoachMarkOverlay, OnboardingController  # noqa: E402
@@ -69,37 +69,71 @@ class OnboardingTests(unittest.TestCase):
             host.close()
             app.main_window.close()
 
-    def test_hint_card_stays_inside_a_small_host_and_scrolls(self) -> None:
+    def test_all_hint_cards_fit_small_hosts_without_scrolling(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             app = create_application(["photochoose-small-hint-test"], root / "state.sqlite3")
             host = QWidget()
-            host.resize(320, 190)
             host.show()
-            overlay = CoachMarkOverlay(
-                host,
-                None,
-                "A responsive guide on every display",
-                "This deliberately long explanation verifies that larger fonts and "
-                "shorter screens never push the guide card outside the visible area. "
-                "Every line remains reachable through the card's vertical scroll area.",
-                "GUIDE  1 / 8",
-            )
-            app.processEvents()
+            steps = OnboardingController._build_steps()
+            for width, height in ((320, 190), (480, 280), (760, 520)):
+                host.resize(width, height)
+                app.processEvents()
+                for step_index, step in enumerate(steps, start=1):
+                    overlay = CoachMarkOverlay(
+                        host,
+                        None,
+                        step.title,
+                        step.body,
+                        "GUIDE  {0} / {1}".format(step_index, len(steps)),
+                    )
+                    app.processEvents()
 
-            self.assertTrue(overlay.rect().contains(overlay.card.geometry()))
-            self.assertGreater(
-                overlay.card_scroll.verticalScrollBar().maximum(),
-                0,
-            )
-
-            host.resize(760, 520)
-            QTest.qWait(20)
-            app.processEvents()
-            self.assertTrue(overlay.rect().contains(overlay.card.geometry()))
-            overlay.detach()
+                    self.assertTrue(
+                        overlay.rect().contains(overlay.card.geometry()),
+                        msg="{0} did not fit {1}x{2}".format(
+                            step.key, width, height
+                        ),
+                    )
+                    self.assertEqual([], overlay.card.findChildren(QScrollArea))
+                    self.assertTrue(
+                        overlay.card.rect().contains(overlay.card_content.geometry()),
+                        msg="{0} content was clipped at {1}x{2}".format(
+                            step.key, width, height
+                        ),
+                    )
+                    overlay.detach()
+                    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
             host.close()
             app.main_window.close()
+
+    def test_inspector_anchor_highlights_the_full_panel_after_overlay_is_raised(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            app = create_application(
+                ["photochoose-inspector-hint-test"], root / "state.sqlite3"
+            )
+            window = app.main_window
+            window.resize(1100, 720)
+            window.show()
+            app.processEvents()
+            overlay = CoachMarkOverlay(
+                window,
+                window.inspector,
+                "Inspect before you decide",
+                "The highlight must cover the inspector, not its splitter edge.",
+                "GUIDE  5 / 8",
+            )
+            app.processEvents()
+            overlay._sync_geometry()
+
+            self.assertGreaterEqual(
+                overlay._target_rect.width(), window.inspector.width() - 12
+            )
+            self.assertGreater(overlay._target_rect.height(), 300)
+
+            overlay.detach()
+            window.close()
 
     def test_guide_is_persistent_and_waits_for_relevant_context(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

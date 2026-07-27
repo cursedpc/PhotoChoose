@@ -4,6 +4,7 @@ import os
 import tempfile
 import time
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -35,7 +36,13 @@ from photochoose.analysis_profiles import ANALYSIS_VERSION  # noqa: E402
 from photochoose.app import create_application  # noqa: E402
 from photochoose.fullscreen_viewer import FullscreenPhotoDialog  # noqa: E402
 from photochoose.main_window import _progress_message  # noqa: E402
-from photochoose.models import Decision, PhotoView  # noqa: E402
+from photochoose.models import (  # noqa: E402
+    Decision,
+    EyeEvidence,
+    FaceEvidence,
+    ObjectEvidence,
+    PhotoView,
+)
 from photochoose.selection_inspector import SelectionInspector  # noqa: E402
 
 
@@ -566,9 +573,129 @@ class GuiSmokeTests(unittest.TestCase):
                 "Analysis overlay",
                 [action.text() for action in viewer._context_menu().actions()],
             )
+            overlay_eye = EyeEvidence(
+                state="open",
+                aperture=0.2,
+                openness_score=0.9,
+                focus_score=100.0,
+                landmarks=((0.3, 0.3), (0.34, 0.3), (0.32, 0.33)),
+            )
+            viewer.photos[0] = replace(
+                viewer.photos[0],
+                subject_regions=(
+                    FaceEvidence(
+                        (0.2, 0.2, 0.3, 0.4),
+                        0.95,
+                        120.0,
+                        True,
+                        (overlay_eye,),
+                    ),
+                ),
+                subject_objects=(
+                    ObjectEvidence(
+                        "person", (0.2, 0.2, 0.3, 0.4), 0.9, 120.0, "primary"
+                    ),
+                ),
+            )
+            viewer._show_current_photo()
+            overlay_base_pixmap_key = viewer.image_label.pixmap().cacheKey()
             viewer.previous_button.setFocus()
             QTest.keyClick(viewer.previous_button, Qt.Key_O)
             self.assertTrue(viewer.overlay_enabled)
+            self.assertEqual(
+                overlay_base_pixmap_key, viewer.image_label.pixmap().cacheKey()
+            )
+            self.assertTrue(viewer.overlay_controls_scroll.isVisible())
+            self.assertEqual(
+                ["Common", "All", "Hide"],
+                [
+                    viewer.overlay_global_combo.itemText(index)
+                    for index in range(3)
+                ],
+            )
+            QTest.mouseClick(
+                viewer.overlay_global_combo,
+                Qt.LeftButton,
+                pos=viewer.overlay_global_combo.rect().center(),
+            )
+            app.processEvents()
+            self.assertTrue(viewer.overlay_global_combo.view().isVisible())
+            QTest.keyClick(viewer.overlay_global_combo, Qt.Key_Escape)
+            self.assertEqual(
+                ["Common", "All", "Hide"],
+                [
+                    viewer.overlay_category_combos["faces"].itemText(index)
+                    for index in range(3)
+                ],
+            )
+            faces_mode_combo = viewer.overlay_category_combos["faces"]
+            expected_option_width = max(
+                faces_mode_combo.fontMetrics().horizontalAdvance(
+                    faces_mode_combo.itemText(index)
+                )
+                for index in range(faces_mode_combo.count())
+            )
+            self.assertEqual(expected_option_width + 46, faces_mode_combo.width())
+            self.assertEqual(
+                max(20, faces_mode_combo.fontMetrics().height() + 4),
+                faces_mode_combo.height(),
+            )
+            QTest.mouseClick(
+                faces_mode_combo,
+                Qt.LeftButton,
+                pos=faces_mode_combo.rect().center(),
+            )
+            app.processEvents()
+            self.assertTrue(faces_mode_combo.view().isVisible())
+            QTest.keyClick(faces_mode_combo, Qt.Key_Escape)
+            viewer.overlay_global_combo.setCurrentText("All")
+            app.processEvents()
+            all_visibility = viewer._current_overlay_visibility()
+            self.assertEqual("all", all_visibility.faces.value)
+            self.assertEqual("all", all_visibility.eyes.value)
+            self.assertEqual("all", all_visibility.objects.value)
+            self.assertTrue(
+                viewer.overlay_item_toggles[("objects", 0, -1)].isChecked()
+            )
+            viewer.overlay_global_combo.setCurrentText("Common")
+            app.processEvents()
+            face_toggle = viewer.overlay_item_toggles[("faces", 0, -1)]
+            eye_toggle = viewer.overlay_item_toggles[("eyes", 0, 0)]
+            object_toggle = viewer.overlay_item_toggles[("objects", 0, -1)]
+            self.assertTrue(face_toggle.isChecked())
+            self.assertTrue(eye_toggle.isChecked())
+            self.assertFalse(object_toggle.isChecked())
+            QTest.mouseClick(face_toggle, Qt.LeftButton, pos=QPoint(2, 9))
+            self.assertFalse(face_toggle.isChecked())
+            self.assertEqual(-1, viewer.overlay_global_combo.currentIndex())
+            self.assertEqual("Mixed", viewer.overlay_global_combo.placeholderText())
+            QTest.mouseClick(face_toggle, Qt.LeftButton, pos=QPoint(31, 9))
+            self.assertTrue(face_toggle.isChecked())
+            QTest.mouseClick(face_toggle, Qt.LeftButton, pos=QPoint(2, 9))
+            self.assertFalse(face_toggle.isChecked())
+            viewer.overlay_category_combos["eyes"].setCurrentText("Hide")
+            eye_toggle = viewer.overlay_item_toggles[("eyes", 0, 0)]
+            object_toggle = viewer.overlay_item_toggles[("objects", 0, -1)]
+            self.assertFalse(eye_toggle.isChecked())
+            self.assertFalse(object_toggle.isChecked())
+            eye_toggle.setChecked(True)
+            object_toggle.setChecked(True)
+            app.processEvents()
+            first_visibility = viewer._current_overlay_visibility()
+            self.assertEqual("hide", first_visibility.face_overrides[0][1].value)
+            self.assertEqual("show", first_visibility.eye_overrides[0][2].value)
+            self.assertEqual("show", first_visibility.object_overrides[0][1].value)
+            viewer.next_photo()
+            self.assertEqual("Common", viewer.overlay_category_combos["faces"].currentText())
+            viewer.previous_photo()
+            self.assertFalse(
+                viewer.overlay_item_toggles[("faces", 0, -1)].isChecked()
+            )
+            self.assertTrue(
+                viewer.overlay_item_toggles[("eyes", 0, 0)].isChecked()
+            )
+            viewer._set_analysis_overlay(False)
+            self.assertFalse(viewer.overlay_controls_scroll.isVisible())
             viewer.close()
 
             comparison_index = window.photo_model.index(0, 0)
