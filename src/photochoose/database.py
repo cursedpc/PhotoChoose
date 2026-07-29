@@ -680,7 +680,7 @@ class PhotoDatabase:
                        p.analysis_version, p.focus_score,
                        p.brightness, p.clipped_dark, p.clipped_bright,
                        p.auto_reasons, p.duplicate_of_id, p.best_source,
-                       p.perceptual_hash, p.face_count, p.eye_count,
+                       p.perceptual_hash, p.content_hash, p.face_count, p.eye_count,
                        p.closed_eye_count, p.uncertain_eye_count, p.subject_model,
                        p.face_confidence, p.eye_open_score, p.eye_focus_score,
                        p.subject_regions,
@@ -957,6 +957,15 @@ class PhotoDatabase:
             row = connection.execute(
                 "SELECT COUNT(*) AS total FROM photos "
                 "WHERE project_id = ? AND analysis_status = 'stale'",
+                (project_id,),
+            ).fetchone()
+        return int(row["total"])
+
+    def count_pending_analysis(self, project_id: int) -> int:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) AS total FROM photos "
+                "WHERE project_id = ? AND analysis_status = 'pending'",
                 (project_id,),
             ).fetchone()
         return int(row["total"])
@@ -1306,6 +1315,7 @@ class PhotoDatabase:
             duplicate_of_id=row["duplicate_of_id"],
             best_source=row["best_source"],
             perceptual_hash=row["perceptual_hash"],
+            content_hash=row["content_hash"],
             face_count=row["face_count"],
             eye_count=row["eye_count"],
             closed_eye_count=row["closed_eye_count"],

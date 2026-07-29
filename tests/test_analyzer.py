@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -98,6 +99,44 @@ class BaselineAnalyzerTests(unittest.TestCase):
         self.assertEqual("pending", rescanned["04-black.jpg"].analysis_status)
         self.assertEqual(Decision.KEEP, rescanned["04-black.jpg"].decision)
         self.assertEqual("manual", rescanned["04-black.jpg"].decision_source)
+
+    def test_pending_only_analysis_reuses_unchanged_results(self) -> None:
+        first_path = self.shoot / "first.jpg"
+        second_path = self.shoot / "second.jpg"
+        first_path.write_bytes(
+            self._jpeg_bytes(np.full((120, 160, 3), 70, dtype=np.uint8))
+        )
+        second_path.write_bytes(
+            self._jpeg_bytes(np.full((120, 160, 3), 140, dtype=np.uint8))
+        )
+        project = self.database.add_project(self.shoot)
+        self.database.scan_project(project.id)
+        analyzer = BaselineAnalyzer(self.database)
+        analyzer.analyze_project(project.id)
+
+        second_path.write_bytes(
+            self._jpeg_bytes(np.full((130, 170, 3), 210, dtype=np.uint8))
+        )
+        self.database.scan_project(project.id)
+        self.assertEqual(1, self.database.count_pending_analysis(project.id))
+        progress = []
+
+        with patch.object(
+            analyzer,
+            "analyze_photo",
+            wraps=analyzer.analyze_photo,
+        ) as analyze_photo:
+            analyzer.analyze_project(
+                project.id,
+                lambda complete, total: progress.append((complete, total)),
+                pending_only=True,
+            )
+
+        self.assertEqual(1, analyze_photo.call_count)
+        self.assertEqual((1, 1), progress[-1])
+        photos = self.database.list_photos(project.id, PhotoView.ALL)
+        self.assertTrue(all(photo.analysis_status != "pending" for photo in photos))
+        self.assertTrue(all(photo.content_hash for photo in photos))
 
     def test_near_duplicate_group_selects_the_sharper_frame_as_best(self) -> None:
         scene = np.zeros((600, 900), dtype=np.uint8)

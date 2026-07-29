@@ -56,6 +56,9 @@ PhotoChoose is a private, local-first desktop application for professional photo
 - Export kept and best photographs to a user-selected destination.
 - Resume with the same projects and decisions after restarting.
 - Rescan a project without losing decisions for files that still exist.
+- Monitor every open folder for settled additions, replacements, renames, and removals;
+  automatically rescan it and analyze only new or changed photographs while preserving
+  cached results and manual decisions for unchanged files.
 - Read JPEG, HEIC/HEIF, PNG, WebP, BMP, and TIFF previews through one oriented,
   color-aware display and analysis path.
 - Recognize common Canon, Nikon, Sony, Fujifilm, Olympus/OM, Panasonic, Pentax,
