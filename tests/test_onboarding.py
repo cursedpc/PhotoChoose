@@ -15,10 +15,45 @@ from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QScrollArea, QWidget  # noqa: E402
 
 from photochoose.app import create_application  # noqa: E402
-from photochoose.onboarding import CoachMarkOverlay, OnboardingController  # noqa: E402
+from photochoose.onboarding import (  # noqa: E402
+    CoachMarkOverlay,
+    OnboardingController,
+    menu_action_target,
+)
 
 
 class OnboardingTests(unittest.TestCase):
+    def test_export_hint_highlights_only_the_file_menu(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            app = create_application(["photochoose-file-hint-test"], root / "state.sqlite3")
+            window = app.main_window
+            window.resize(920, 560)
+            window.show()
+            app.processEvents()
+
+            target = menu_action_target(window, "File")
+            self.assertIsInstance(target, QRect)
+            overlay = CoachMarkOverlay(
+                window,
+                target,
+                "Export without touching the originals",
+                "Use the File menu.",
+                "GUIDE  6 / 8",
+            )
+            app.processEvents()
+            overlay._sync_geometry()
+
+            self.assertLess(overlay._target_rect.width(), window.menuBar().width() // 3)
+            self.assertGreater(overlay._target_rect.width(), 20)
+            expected = target.adjusted(-6, -6, 6, 6).intersected(
+                overlay.rect().adjusted(8, 8, -8, -8)
+            )
+            self.assertEqual(expected, overlay._target_rect)
+
+            overlay.detach()
+            window.close()
+
     def test_target_highlight_tracks_widget_across_geometry_changes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

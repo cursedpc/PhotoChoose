@@ -2,11 +2,25 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
+
+
+CoachTarget = Optional[Union[QWidget, QRect]]
+
+
+def menu_action_target(window: QWidget, title: str) -> CoachTarget:
+    """Return one top-level menu action's rectangle in window coordinates."""
+    menu_bar = window.menuBar()
+    for action in menu_bar.actions():
+        if action.text().replace("&", "") != title:
+            continue
+        action_rect = menu_bar.actionGeometry(action)
+        return QRect(menu_bar.mapTo(window, action_rect.topLeft()), action_rect.size())
+    return menu_bar
 
 
 @dataclass(frozen=True)
@@ -16,7 +30,7 @@ class HintStep:
     body: str
     is_available: Callable[[object], bool]
     host: Callable[[object], Optional[QWidget]]
-    target: Callable[[object], Optional[QWidget]]
+    target: Callable[[object], CoachTarget]
 
 
 class CoachMarkOverlay(QWidget):
@@ -26,7 +40,7 @@ class CoachMarkOverlay(QWidget):
     def __init__(
         self,
         host: QWidget,
-        target: Optional[QWidget],
+        target: CoachTarget,
         title: str,
         body: str,
         progress: str,
@@ -102,7 +116,9 @@ class CoachMarkOverlay(QWidget):
         for widget in self._dismiss_widgets:
             widget.installEventFilter(self)
         self.host.installEventFilter(self)
-        self._target_watchers = (self.target,) if self.target is not None else ()
+        self._target_watchers = (
+            (self.target,) if isinstance(self.target, QWidget) else ()
+        )
         for widget in self._target_watchers:
             widget.installEventFilter(self)
         self._sync_geometry()
@@ -165,7 +181,13 @@ class CoachMarkOverlay(QWidget):
         self.update()
 
     def _mapped_target_rect(self) -> QRect:
-        if self.target is None or not self.target.isVisible():
+        if self.target is None:
+            return QRect()
+        if isinstance(self.target, QRect):
+            target_rect = QRect(self.target).adjusted(-6, -6, 6, 6)
+            clipped = target_rect.intersected(self.rect().adjusted(8, 8, -8, -8))
+            return clipped if clipped.width() >= 8 and clipped.height() >= 8 else QRect()
+        if not self.target.isVisible():
             return QRect()
         # visibleRegion() treats this overlay as an occluding sibling after it is
         # raised and can collapse a perfectly visible target into an edge sliver.
@@ -467,7 +489,7 @@ class OnboardingController(QObject):
                 "you want to replay this guide.",
                 lambda window: bool(window._selected_photo_ids()),
                 main_host,
-                lambda window: window.menuBar(),
+                lambda window: menu_action_target(window, "File"),
             ),
             HintStep(
                 "fullscreen",

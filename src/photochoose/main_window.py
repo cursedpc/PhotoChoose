@@ -919,7 +919,7 @@ class MainWindow(QMainWindow):
         self.busy_projects.discard(project_id)
         if self.current_project and self.current_project.id == project_id:
             self._update_project_action_buttons()
-            self._refresh_photos()
+            self._refresh_photos(invalidate_thumbnails=True)
         if project_id in self.analyze_after_scan:
             self.analyze_after_scan.discard(project_id)
             project = self.database.get_project(project_id)
@@ -1322,7 +1322,10 @@ class MainWindow(QMainWindow):
         self._refresh_photos(preserve_selection=True, focus_grid=True)
 
     def _refresh_photos(
-        self, preserve_selection: bool = False, focus_grid: bool = False
+        self,
+        preserve_selection: bool = False,
+        focus_grid: bool = False,
+        invalidate_thumbnails: bool = False,
     ) -> None:
         if self.current_project is None:
             return
@@ -1344,7 +1347,11 @@ class MainWindow(QMainWindow):
         project_id = self.current_project.id
         view = self.current_view
 
-        self.photo_model.refresh(self.current_project.id, self.current_view)
+        self.photo_model.refresh(
+            self.current_project.id,
+            self.current_view,
+            invalidate_thumbnails=invalidate_thumbnails,
+        )
         if self.photo_model.rowCount():
             self.canvas_stack.setCurrentIndex(1)
         else:
