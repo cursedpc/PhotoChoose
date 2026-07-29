@@ -89,6 +89,7 @@ class BaselineAnalyzer:
         self,
         project_id: int,
         progress: Optional[Callable[[int, int], None]] = None,
+        pending_only: bool = False,
     ) -> Dict[str, int]:
         photos = sorted(
             self.database.list_photos(project_id, PhotoView.ALL),
@@ -98,10 +99,27 @@ class BaselineAnalyzer:
                 photo.relative_path.casefold(),
             ),
         )
-        hashes: Dict[str, Tuple[Photo, AnalysisResult]] = {}
+        stored = {
+            photo.id: self._stored_result(photo)
+            for photo in photos
+            if pending_only and photo.analysis_status != "pending"
+        }
+        hashes: Dict[str, Tuple[Photo, AnalysisResult]] = {
+            result.content_hash: (photo, result)
+            for photo in photos
+            if (result := stored.get(photo.id)) is not None and result.content_hash
+        }
         analyzed: List[Tuple[Photo, AnalysisResult]] = []
+        pending_count = len(photos) - len(stored)
+        completed = 0
 
-        for index, photo in enumerate(photos, start=1):
+        if progress is not None:
+            progress(0, pending_count)
+        for photo in photos:
+            result = stored.get(photo.id)
+            if result is not None:
+                analyzed.append((photo, result))
+                continue
             result = self.analyze_photo(photo, hashes)
             self.database.apply_analysis(
                 photo.id,
@@ -141,11 +159,59 @@ class BaselineAnalyzer:
             if result.content_hash and result.content_hash not in hashes:
                 hashes[result.content_hash] = (photo, result)
             analyzed.append((photo, result))
+            completed += 1
             if progress is not None:
-                progress(index, len(photos))
+                progress(completed, pending_count)
 
         self._group_and_select_best(project_id, analyzed)
         return self.database.counts(project_id)
+
+    @staticmethod
+    def _stored_result(photo: Photo) -> AnalysisResult:
+        important_eyes = [
+            eye
+            for region in photo.subject_regions
+            if region.important
+            for eye in region.eyes
+        ]
+        return AnalysisResult(
+            decision=photo.decision,
+            focus_score=photo.focus_score,
+            brightness=photo.brightness,
+            clipped_dark=photo.clipped_dark,
+            clipped_bright=photo.clipped_bright,
+            content_hash=photo.content_hash,
+            perceptual_hash=photo.perceptual_hash,
+            face_count=photo.face_count,
+            eye_count=photo.eye_count,
+            subject_focus_score=photo.subject_focus_score,
+            reasons=photo.auto_reasons,
+            closed_eye_count=photo.closed_eye_count,
+            uncertain_eye_count=photo.uncertain_eye_count,
+            obscured_eye_count=photo.obscured_eye_count,
+            subject_model=photo.subject_model,
+            face_confidence=photo.face_confidence,
+            eye_open_score=photo.eye_open_score,
+            eye_focus_score=photo.eye_focus_score,
+            important_face_count=photo.important_face_count,
+            important_open_eye_count=sum(eye.state == "open" for eye in important_eyes),
+            important_closed_eye_count=sum(
+                eye.state == "closed" for eye in important_eyes
+            ),
+            important_uncertain_eye_count=sum(
+                eye.state == "uncertain" for eye in important_eyes
+            ),
+            important_obscured_eye_count=sum(
+                eye.state == "obscured" for eye in important_eyes
+            ),
+            subject_regions=photo.subject_regions,
+            object_count=photo.object_count,
+            object_model=photo.object_model,
+            primary_subject_focus_score=photo.primary_subject_focus_score,
+            subject_objects=photo.subject_objects,
+            duplicate_of_id=photo.duplicate_of_id,
+            status=photo.analysis_status,
+        )
 
     def analyze_photo(
         self,

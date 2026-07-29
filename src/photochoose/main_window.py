@@ -58,6 +58,7 @@ from photochoose.calibration_report import build_calibration_report
 from photochoose.comparison_viewer import GroupComparisonDialog
 from photochoose.database import PhotoDatabase
 from photochoose.exporter import ProjectExporter
+from photochoose.folder_monitor import FolderMonitor
 from photochoose.fullscreen_viewer import FullscreenPhotoDialog
 from photochoose.keyboard_shortcuts import LayoutIndependentShortcutFilter
 from photochoose.models import Decision, PhotoView, Project
@@ -128,12 +129,17 @@ class _AnalysisSignals(QObject):
 
 class _AnalysisTask(QRunnable):
     def __init__(
-        self, database: PhotoDatabase, project_id: int, analysis_profile: str
+        self,
+        database: PhotoDatabase,
+        project_id: int,
+        analysis_profile: str,
+        pending_only: bool = False,
     ) -> None:
         super().__init__()
         self.database = database
         self.project_id = project_id
         self.analysis_profile = analysis_profile
+        self.pending_only = pending_only
         self.signals = _AnalysisSignals()
 
     def run(self) -> None:
@@ -144,6 +150,7 @@ class _AnalysisTask(QRunnable):
                 lambda complete, total: self.signals.progress.emit(
                     self.project_id, complete, total
                 ),
+                pending_only=self.pending_only,
             )
         except Exception as exc:  # displayed to the user at the UI boundary
             self.signals.failed.emit(self.project_id, str(exc))
@@ -190,6 +197,8 @@ class MainWindow(QMainWindow):
         self.thread_pool = QThreadPool.globalInstance()
         self.busy_projects = set()
         self.analyze_after_scan = set()
+        self._pending_auto_rescans: set[int] = set()
+        self._automatic_scan_projects: set[int] = set()
         self._progress_started_at: dict[tuple[str, int], float] = {}
         self._project_import_queue: list[Project] = []
         self._active_import_project_id: Optional[int] = None
@@ -198,6 +207,8 @@ class MainWindow(QMainWindow):
         self.fullscreen_dialog: Optional[FullscreenPhotoDialog] = None
         self.comparison_dialog: Optional[GroupComparisonDialog] = None
         self.calibration_dialog: Optional[CalibrationReportDialog] = None
+        self.folder_monitor = FolderMonitor(self)
+        self.folder_monitor.folderChanged.connect(self._auto_rescan_requested)
 
         self.setWindowTitle("PhotoChoose")
         self.setObjectName("mainWindow")
@@ -589,10 +600,14 @@ class MainWindow(QMainWindow):
         button.setChecked(not button.isChecked())
 
     def _load_projects(self, select_project_id: Optional[int] = None) -> None:
+        projects = self.database.list_projects()
+        open_project_ids = {project.id for project in projects}
+        self._pending_auto_rescans.intersection_update(open_project_ids)
+        self.folder_monitor.set_projects(projects)
         self.project_list.blockSignals(True)
         self.project_list.clear()
         selected_item = None
-        for project in self.database.list_projects():
+        for project in projects:
             item = QListWidgetItem(project.name)
             item.setData(Qt.UserRole, project.id)
             item.setToolTip(project.root_path)
@@ -901,6 +916,32 @@ class MainWindow(QMainWindow):
         task.signals.failed.connect(self._scan_failed)
         self.thread_pool.start(task)
 
+    @Slot(int)
+    def _auto_rescan_requested(self, project_id: int) -> None:
+        if project_id not in {project.id for project in self.database.list_projects()}:
+            return
+        self._pending_auto_rescans.add(project_id)
+        self._start_pending_auto_rescan()
+
+    def _start_pending_auto_rescan(self) -> None:
+        if self._automatic_scan_projects:
+            return
+        for project_id in sorted(self._pending_auto_rescans):
+            if project_id in self.busy_projects:
+                continue
+            project = self.database.get_project(project_id)
+            if project is None:
+                self._pending_auto_rescans.discard(project_id)
+                continue
+            self._pending_auto_rescans.discard(project_id)
+            self._automatic_scan_projects.add(project_id)
+            if self.current_project and self.current_project.id == project_id:
+                self.statusBar().showMessage(
+                    "Folder changed · updating {0}…".format(project.name)
+                )
+            self._start_scan(project)
+            return
+
     @Slot(int, int, int)
     def _scan_progress(self, project_id: int, complete: int, total: int) -> None:
         if self.current_project and self.current_project.id == project_id:
@@ -915,11 +956,12 @@ class MainWindow(QMainWindow):
 
     @Slot(int, int)
     def _scan_finished(self, project_id: int, count: int) -> None:
+        automatic = project_id in self._automatic_scan_projects
         self._progress_started_at.pop(("scan", project_id), None)
         self.busy_projects.discard(project_id)
         if self.current_project and self.current_project.id == project_id:
             self._update_project_action_buttons()
-            self._refresh_photos()
+            self._refresh_photos(invalidate_thumbnails=True)
         if project_id in self.analyze_after_scan:
             self.analyze_after_scan.discard(project_id)
             project = self.database.get_project(project_id)
@@ -927,12 +969,29 @@ class MainWindow(QMainWindow):
                 self._start_analysis(project)
                 if project_id not in self.busy_projects:
                     self._complete_import_project(project_id)
+                self._start_pending_auto_rescan()
                 return
-        self.statusBar().showMessage("Scan complete: {0} supported photos".format(count), 5000)
+        if automatic and self.database.count_pending_analysis(project_id):
+            project = self.database.get_project(project_id)
+            if project is not None:
+                self._start_analysis(project, pending_only=True)
+                return
+        self._automatic_scan_projects.discard(project_id)
+        if automatic:
+            self.statusBar().showMessage(
+                "Folder updated automatically: {0} supported photos".format(count),
+                5000,
+            )
+        else:
+            self.statusBar().showMessage(
+                "Scan complete: {0} supported photos".format(count), 5000
+            )
         self._complete_import_project(project_id)
+        self._start_pending_auto_rescan()
 
     @Slot(int, str)
     def _scan_failed(self, project_id: int, message: str) -> None:
+        self._automatic_scan_projects.discard(project_id)
         self._progress_started_at.pop(("scan", project_id), None)
         self.analyze_after_scan.discard(project_id)
         self.busy_projects.discard(project_id)
@@ -941,13 +1000,14 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, "Scan failed", message)
         self.statusBar().showMessage("Scan failed", 5000)
         self._complete_import_project(project_id)
+        self._start_pending_auto_rescan()
 
     @Slot()
     def _analyze_current_project(self) -> None:
         if self.current_project is not None:
             self._start_scan(self.current_project, analyze_after=True)
 
-    def _start_analysis(self, project: Project) -> None:
+    def _start_analysis(self, project: Project, pending_only: bool = False) -> None:
         if not self.database.list_photos(project.id, PhotoView.ALL):
             QMessageBox.information(
                 self,
@@ -959,7 +1019,12 @@ class MainWindow(QMainWindow):
         self._progress_started_at[("analysis", project.id)] = time.monotonic()
         self._update_project_action_buttons()
         self.statusBar().showMessage("Starting local analysis of {0}…".format(project.name))
-        task = _AnalysisTask(self.database, project.id, project.analysis_profile)
+        task = _AnalysisTask(
+            self.database,
+            project.id,
+            project.analysis_profile,
+            pending_only=pending_only,
+        )
         task.signals.progress.connect(self._analysis_progress)
         task.signals.finished.connect(self._analysis_finished)
         task.signals.failed.connect(self._analysis_failed)
@@ -982,14 +1047,18 @@ class MainWindow(QMainWindow):
 
     @Slot(int, object)
     def _analysis_finished(self, project_id: int, totals) -> None:
+        automatic = project_id in self._automatic_scan_projects
+        self._automatic_scan_projects.discard(project_id)
         self._progress_started_at.pop(("analysis", project_id), None)
         self.busy_projects.discard(project_id)
         if self.current_project and self.current_project.id == project_id:
             self._update_project_action_buttons()
             self._refresh_photos()
             self._update_analysis_profile_controls()
+        prefix = "Folder updated automatically" if automatic else "Analysis complete"
         self.statusBar().showMessage(
-            "Analysis complete · Keep {0} · Review {1} · Reject {2}".format(
+            "{0} · Keep {1} · Review {2} · Reject {3}".format(
+                prefix,
                 totals.get(Decision.KEEP.value, 0),
                 totals.get(Decision.REVIEW.value, 0),
                 totals.get(Decision.REJECT.value, 0),
@@ -997,9 +1066,11 @@ class MainWindow(QMainWindow):
             10000,
         )
         self._complete_import_project(project_id)
+        self._start_pending_auto_rescan()
 
     @Slot(int, str)
     def _analysis_failed(self, project_id: int, message: str) -> None:
+        self._automatic_scan_projects.discard(project_id)
         self._progress_started_at.pop(("analysis", project_id), None)
         self.busy_projects.discard(project_id)
         if self.current_project and self.current_project.id == project_id:
@@ -1007,6 +1078,7 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, "Analysis failed", message)
         self.statusBar().showMessage("Analysis failed", 5000)
         self._complete_import_project(project_id)
+        self._start_pending_auto_rescan()
 
     @Slot()
     def _open_calibration_report(self) -> None:
@@ -1239,6 +1311,7 @@ class MainWindow(QMainWindow):
             "Export complete · {0} copied · {1} skipped".format(result.copied, result.skipped),
             10000,
         )
+        self._start_pending_auto_rescan()
 
     @Slot(int, str)
     def _export_failed(self, project_id: int, message: str) -> None:
@@ -1247,6 +1320,11 @@ class MainWindow(QMainWindow):
             self._update_project_action_buttons()
         QMessageBox.warning(self, "Export failed", message)
         self.statusBar().showMessage("Export failed", 5000)
+        self._start_pending_auto_rescan()
+
+    def closeEvent(self, event) -> None:
+        self.folder_monitor.close()
+        super().closeEvent(event)
 
     def _update_project_action_buttons(self) -> None:
         has_folder = self.current_project is not None
@@ -1322,7 +1400,10 @@ class MainWindow(QMainWindow):
         self._refresh_photos(preserve_selection=True, focus_grid=True)
 
     def _refresh_photos(
-        self, preserve_selection: bool = False, focus_grid: bool = False
+        self,
+        preserve_selection: bool = False,
+        focus_grid: bool = False,
+        invalidate_thumbnails: bool = False,
     ) -> None:
         if self.current_project is None:
             return
@@ -1344,7 +1425,11 @@ class MainWindow(QMainWindow):
         project_id = self.current_project.id
         view = self.current_view
 
-        self.photo_model.refresh(self.current_project.id, self.current_view)
+        self.photo_model.refresh(
+            self.current_project.id,
+            self.current_view,
+            invalidate_thumbnails=invalidate_thumbnails,
+        )
         if self.photo_model.rowCount():
             self.canvas_stack.setCurrentIndex(1)
         else:

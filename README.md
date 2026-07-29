@@ -56,6 +56,9 @@ PhotoChoose is a private, local-first desktop application for professional photo
 - Export kept and best photographs to a user-selected destination.
 - Resume with the same projects and decisions after restarting.
 - Rescan a project without losing decisions for files that still exist.
+- Monitor every open folder for settled additions, replacements, renames, and removals;
+  automatically rescan it and analyze only new or changed photographs while preserving
+  cached results and manual decisions for unchanged files.
 - Read JPEG, HEIC/HEIF, PNG, WebP, BMP, and TIFF previews through one oriented,
   color-aware display and analysis path.
 - Recognize common Canon, Nikon, Sony, Fujifilm, Olympus/OM, Panasonic, Pentax,
@@ -213,7 +216,7 @@ also emitted as a portable ZIP for target-machine diagnostics.
 
 The build must run on Windows; PyInstaller does not cross-build Windows executables from macOS.
 Version tags and manual workflow runs execute the release builders in
-`.github/workflows/windows-installer.yml`. A matching tag such as `v0.1.5` publishes the tested
+`.github/workflows/windows-installer.yml`. A matching tag such as `v0.1.6` publishes the tested
 installer, portable ZIP, native Intel and Apple Silicon macOS DMGs, and SHA-256 checksums directly
 to GitHub Releases. The macOS apps are built on matching native GitHub runners and are intentionally
 unsigned. Local build instructions are in `packaging/windows/README.md` and

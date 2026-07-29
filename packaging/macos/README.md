@@ -33,7 +33,7 @@ mkdir -p release/dmg-root
 ditto --noextattr --noacl dist/PhotoChoose.app release/dmg-root/PhotoChoose.app
 ln -s /Applications release/dmg-root/Applications
 hdiutil create -volname PhotoChoose -srcfolder release/dmg-root -ov -format UDZO \
-  release/PhotoChoose-0.1.5-macOS-Apple-Silicon.dmg
+  release/PhotoChoose-0.1.6-macOS-Apple-Silicon.dmg
 ```
 
 The ad-hoc signature keeps the bundle internally consistent but does not identify or establish trust

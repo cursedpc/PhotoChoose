@@ -84,6 +84,7 @@ class Photo:
     duplicate_of_id: Optional[int] = None
     best_source: str = "none"
     perceptual_hash: Optional[str] = None
+    content_hash: Optional[str] = None
     face_count: int = 0
     eye_count: int = 0
     subject_focus_score: Optional[float] = None

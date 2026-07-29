@@ -56,6 +56,27 @@ class PhotoDatabaseTests(unittest.TestCase):
             [photo.relative_path for photo in photos],
         )
 
+    def test_same_filename_remains_distinct_by_folder_and_relative_path(self) -> None:
+        self._write_photo("Camera A/IMG_0001.jpg")
+        self._write_photo("Camera B/IMG_0001.jpg")
+        second_shoot = self.root / "Portraits"
+        second_shoot.mkdir()
+        (second_shoot / "IMG_0001.jpg").write_bytes(b"other image placeholder")
+
+        first_project = self.database.add_project(self.shoot)
+        second_project = self.database.add_project(second_shoot)
+        self.database.scan_project(first_project.id)
+        self.database.scan_project(second_project.id)
+
+        first_photos = self.database.list_photos(first_project.id, PhotoView.ALL)
+        second_photos = self.database.list_photos(second_project.id, PhotoView.ALL)
+        self.assertEqual(
+            ["Camera A/IMG_0001.jpg", "Camera B/IMG_0001.jpg"],
+            [photo.relative_path for photo in first_photos],
+        )
+        self.assertEqual(["IMG_0001.jpg"], [photo.relative_path for photo in second_photos])
+        self.assertEqual(3, len({photo.id for photo in first_photos + second_photos}))
+
     def test_scan_reports_logical_asset_progress(self) -> None:
         self._write_photo("one.jpg")
         self._write_photo("Camera A/two.jpg")

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Tuple
 
 from PySide6.QtCore import (
     QAbstractListModel,
@@ -25,19 +25,20 @@ MAX_MEMORY_THUMBNAILS = 350
 
 
 class _ThumbnailSignals(QObject):
-    loaded = Signal(int, object)
+    loaded = Signal(int, int, object)
 
 
 class _ThumbnailTask(QRunnable):
-    def __init__(self, photo_id: int, path: str) -> None:
+    def __init__(self, photo_id: int, generation: int, path: str) -> None:
         super().__init__()
         self.photo_id = photo_id
+        self.generation = generation
         self.path = path
         self.signals = _ThumbnailSignals()
 
     def run(self) -> None:
         image = read_qimage(self.path, THUMBNAIL_SIZE)
-        self.signals.loaded.emit(self.photo_id, image)
+        self.signals.loaded.emit(self.photo_id, self.generation, image)
 
 
 class PhotoListModel(QAbstractListModel):
@@ -55,7 +56,8 @@ class PhotoListModel(QAbstractListModel):
         self.photos: List[Photo] = []
         self._rows_by_id = {}
         self._cache = OrderedDict()
-        self._in_flight: Set[int] = set()
+        self._thumbnail_generation = 0
+        self._in_flight: Set[Tuple[int, int]] = set()
         self._thread_pool = QThreadPool.globalInstance()
         self._placeholder = QPixmap(THUMBNAIL_SIZE)
         self._placeholder.fill(QColor("#2b3038"))
@@ -185,14 +187,33 @@ class PhotoListModel(QAbstractListModel):
             return photo
         return None
 
-    def refresh(self, project_id: int, view: PhotoView) -> None:
-        self.set_photos(self.database.list_photos(project_id, view))
+    def refresh(
+        self,
+        project_id: int,
+        view: PhotoView,
+        invalidate_thumbnails: bool = False,
+    ) -> None:
+        self.set_photos(
+            self.database.list_photos(project_id, view),
+            invalidate_thumbnails=invalidate_thumbnails,
+        )
 
-    def set_photos(self, photos: List[Photo]) -> None:
+    def set_photos(
+        self,
+        photos: List[Photo],
+        invalidate_thumbnails: bool = False,
+    ) -> None:
         self.beginResetModel()
+        if invalidate_thumbnails:
+            # A rescan may replace a file while retaining its database id, and
+            # SQLite may reuse a deleted row's id for a newly discovered file.
+            # Do not let a pixmap (or late worker result) from the former scan
+            # identify the new contents by id alone.
+            self._thumbnail_generation += 1
+            self._cache.clear()
+            self._in_flight.clear()
         self.photos = list(photos)
         self._rows_by_id = {photo.id: row for row, photo in enumerate(self.photos)}
-        self._in_flight.clear()
         self.endResetModel()
 
     def update_photo(self, row: int, photo: Photo) -> None:
@@ -215,6 +236,8 @@ class PhotoListModel(QAbstractListModel):
 
     def clear(self) -> None:
         self.beginResetModel()
+        self._thumbnail_generation += 1
+        self._cache.clear()
         self.photos = []
         self._rows_by_id = {}
         self._in_flight.clear()
@@ -231,16 +254,28 @@ class PhotoListModel(QAbstractListModel):
         return [self.photos[index.row()] for index in indexes if index.isValid()]
 
     def _request_thumbnail(self, photo: Photo) -> None:
-        if photo.id in self._in_flight:
+        request_key = (self._thumbnail_generation, photo.id)
+        if request_key in self._in_flight:
             return
-        self._in_flight.add(photo.id)
-        task = _ThumbnailTask(photo.id, photo.display_path)
+        self._in_flight.add(request_key)
+        task = _ThumbnailTask(
+            photo.id,
+            self._thumbnail_generation,
+            photo.display_path,
+        )
         task.signals.loaded.connect(self._thumbnail_loaded)
         self._thread_pool.start(task)
 
-    @Slot(int, object)
-    def _thumbnail_loaded(self, photo_id: int, image: QImage) -> None:
-        self._in_flight.discard(photo_id)
+    @Slot(int, int, object)
+    def _thumbnail_loaded(
+        self,
+        photo_id: int,
+        generation: int,
+        image: QImage,
+    ) -> None:
+        self._in_flight.discard((generation, photo_id))
+        if generation != self._thumbnail_generation:
+            return
         row = self._rows_by_id.get(photo_id)
         if row is None:
             return
