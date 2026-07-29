@@ -16,11 +16,11 @@ VSVersionInfo(
         [
           StringStruct('CompanyName', 'PhotoChoose'),
           StringStruct('FileDescription', 'PhotoChoose photo culling application'),
-          StringStruct('FileVersion', '0.1.5'),
+          StringStruct('FileVersion', '0.1.6'),
           StringStruct('InternalName', 'PhotoChoose'),
           StringStruct('OriginalFilename', 'PhotoChoose.exe'),
           StringStruct('ProductName', 'PhotoChoose'),
-          StringStruct('ProductVersion', '0.1.5')
+          StringStruct('ProductVersion', '0.1.6')
         ]
       )
     ]),
