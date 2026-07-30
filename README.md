@@ -15,6 +15,12 @@ PhotoChoose is a private, local-first desktop application for professional photo
   primary-subject result for conservative burst ranking.
 - Treat faces smaller than one quarter of the largest detected face as background evidence
   for ranking purposes, while still showing and counting them.
+- Create local SFace identity embeddings for usable detected faces and automatically group likely
+  instances of the same person across every indexed folder. Open **People** beside the normal
+  filters to browse unnamed people, named people, and Unknown faces; click a person for all of
+  their photographs or hover for the folders containing that person.
+- Name automatically discovered people, merge duplicate identity groups, or use **Not [person]**
+  on an incorrect match. Explicit exclusions survive rescanning and future automatic grouping.
 - Detect people and common animals, vehicles, furnishings, food, electronics, and other
   COCO objects with a bundled NanoDet model, then classify their importance as primary,
   supporting, or background.
@@ -127,7 +133,7 @@ itself for CPU and memory; ordinary files and non-local links are ignored.
 
 ## Local subject models
 
-All three neural model files are installed with PhotoChoose and run through OpenVINO on the CPU.
+All neural model files are installed with PhotoChoose and run locally on the CPU.
 Analysis does not contact a server or download model files at runtime. If OpenVINO model loading
 or inference fails, PhotoChoose automatically returns to OpenCV DNN for YuNet and NanoDet and
 LiteRT for face mesh. Its earlier OpenCV Haar face/eye checks and spectral-saliency fallback remain
@@ -139,6 +145,7 @@ that actually produced each result.
   through OpenVINO CPU.
 - General objects: OpenCV Zoo NanoDet, Apache-2.0 licensed, executed locally through
   OpenVINO CPU with a model-free saliency fallback.
+- Identity embeddings: OpenCV Zoo SFace, Apache-2.0 licensed, executed locally through OpenCV CPU.
 - Exact upstream locations, licenses, filenames, and SHA-256 hashes are recorded in
   `src/photochoose/model_assets/MODELS.md`.
 
@@ -146,6 +153,11 @@ The current inference path is entirely local and CPU-only. OpenVINO CPU is imple
 for output parity on the macOS development machine; throughput, memory, and thermal validation on
 large shoots remains for the target Windows 11 machine. Intel GPU and OpenVINO `AUTO` execution are
 outside the current implementation scope.
+
+Face embeddings are biometric identifiers even though they are not photographs. PhotoChoose keeps
+them only in its local SQLite catalog, never uploads them, and never includes them in photograph
+exports. Automatic identity assignment deliberately favors precision: difficult or ambiguous faces
+remain under **Unknown** instead of being forced into a named person.
 
 HEIC/HEIF decoding uses `pi-heif` 1.4.0 and its bundled LGPL-3.0-or-later libheif/libde265
 components. The packaged Python distribution metadata includes `LICENSE.txt` and

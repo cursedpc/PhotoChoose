@@ -198,6 +198,17 @@ class PhotoListModel(QAbstractListModel):
             invalidate_thumbnails=invalidate_thumbnails,
         )
 
+    def refresh_person(
+        self,
+        person_id: Optional[int],
+        project_id: Optional[int] = None,
+        invalidate_thumbnails: bool = False,
+    ) -> None:
+        self.set_photos(
+            self.database.list_photos_for_person(person_id, project_id),
+            invalidate_thumbnails=invalidate_thumbnails,
+        )
+
     def set_photos(
         self,
         photos: List[Photo],

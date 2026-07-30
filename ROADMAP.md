@@ -299,6 +299,22 @@ Initial numerical targets are provisional and must be calibrated with real label
 - **Large shoots can exhaust memory.** Stream work, bound queues and caches, and store intermediate results in SQLite.
 - **File operations can separate related assets.** Treat each photograph and its RAW/JPEG/sidecars as one transactional unit.
 
+## Saved product design — identity recognition
+
+Identity recognition discovers and groups people automatically across indexed folders. The user
+may name people, merge duplicate groups, or remove an incorrect match; manual corrections must
+survive rescanning and regrouping.
+
+The following navigation interaction is an explicit product-design decision:
+
+- Add **People** beside the existing **All**, **Best**, **Keep**, and **Review** filters.
+- Opening **People** displays compact identity thumbnails with labels and counts, for example:
+  **Person 1 · 37**, **Person 2 · 14**, and **Unknown · 8**.
+- Clicking a person opens every indexed photograph containing that person.
+- Hovering over a person expands a folder dropdown listing folders that contain photographs of
+  that person.
+- Clicking a folder in that dropdown opens only that person's photographs from that folder.
+
 ## First implementation slice
 
 The first useful build should deliberately stay small:

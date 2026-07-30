@@ -10,6 +10,19 @@
 PhotoChoose executes YuNet through OpenVINO CPU. OpenCV DNN is retained as an automatic
 load-time and inference-time fallback.
 
+## SFace identity embeddings
+
+- File: `face_recognition_sface_2021dec.onnx`
+- Upstream: OpenCV Zoo, `models/face_recognition_sface`
+- License: Apache License 2.0 (`SFACE_LICENSE`)
+- Input: YuNet-aligned 112×112 face crop
+- Output: normalized 128-value identity embedding
+- SHA-256: `0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79`
+
+PhotoChoose runs SFace locally through OpenCV CPU and uses conservative cosine-similarity
+thresholds to discover persistent people across folders. Embeddings and corrections remain in
+the local SQLite catalog and are never exported with photographs.
+
 ## MediaPipe Face Mesh V2 landmarks
 
 - File: `face_landmarks_detector.tflite`

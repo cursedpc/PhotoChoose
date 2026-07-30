@@ -8,12 +8,13 @@ from typing import Callable, Optional, Tuple
 import cv2
 import numpy as np
 
+from photochoose.identity_recognition import SFaceIdentityEncoder
 from photochoose.inference_backend import (
     InferenceBackendError,
     OpenVINOCPUBackend,
     default_openvino_cpu_backend,
 )
-from photochoose.models import EyeEvidence, FaceEvidence
+from photochoose.models import EyeEvidence, FaceEvidence, IdentityFaceEvidence
 
 MODEL_DIRECTORY = Path(__file__).with_name("model_assets")
 FACE_MODEL_PATH = MODEL_DIRECTORY / "face_detection_yunet_2023mar.onnx"
@@ -66,6 +67,8 @@ class SubjectModelResult:
     important_uncertain_eye_count: int = 0
     important_obscured_eye_count: int = 0
     regions: Tuple[FaceEvidence, ...] = ()
+    identity_faces: Tuple[IdentityFaceEvidence, ...] = ()
+    identity_available: bool = False
 
 
 @dataclass(frozen=True)
@@ -325,6 +328,7 @@ class ModelSubjectAnalyzer:
         self,
         face_model_path: Path = FACE_MODEL_PATH,
         eye_analyzer: Optional[FaceLandmarkEyeAnalyzer] = None,
+        identity_encoder: Optional[SFaceIdentityEncoder] = None,
         backend: Optional[OpenVINOCPUBackend] = None,
     ) -> None:
         self.face_detector = None
@@ -344,6 +348,7 @@ class ModelSubjectAnalyzer:
         self.eye_analyzer = eye_analyzer or FaceLandmarkEyeAnalyzer(
             backend=backend
         )
+        self.identity_encoder = identity_encoder or SFaceIdentityEncoder()
 
     def _activate_opencv_face_detector(self, face_model_path: Path) -> bool:
         try:
@@ -396,7 +401,18 @@ class ModelSubjectAnalyzer:
                 return None
         model_name = self._active_model_name()
         if faces is None or len(faces) == 0:
-            return SubjectModelResult(0, 0, 0, 0, 0, None, None, None, model_name)
+            return SubjectModelResult(
+                0,
+                0,
+                0,
+                0,
+                0,
+                None,
+                None,
+                None,
+                model_name,
+                identity_available=self.identity_encoder.available,
+            )
 
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         open_count = 0
@@ -406,7 +422,8 @@ class ModelSubjectAnalyzer:
         face_focus_scores = []
         face_confidences = []
         regions = []
-        for face in faces:
+        identity_faces = []
+        for face_index, face in enumerate(faces):
             raw_x, raw_y, raw_width, raw_height = [
                 int(round(value / scale)) for value in face[:4]
             ]
@@ -471,26 +488,49 @@ class ModelSubjectAnalyzer:
                         visibility_reason=visibility_reason,
                     )
                 )
+            normalized_bounds = (
+                x / image.shape[1],
+                y / image.shape[0],
+                face_width / image.shape[1],
+                face_height / image.shape[0],
+            )
             regions.append(
                 FaceEvidence(
-                    bounds=(
-                        x / image.shape[1],
-                        y / image.shape[0],
-                        face_width / image.shape[1],
-                        face_height / image.shape[0],
-                    ),
+                    bounds=normalized_bounds,
                     confidence=confidence,
                     focus_score=face_focus,
                     important=False,
                     eyes=tuple(eye_evidence),
                 )
             )
+            aligned_face = np.asarray(face, dtype=np.float32).copy()
+            aligned_face[:14] /= scale
+            identity_face = self.identity_encoder.encode(
+                image,
+                aligned_face,
+                face_index,
+                normalized_bounds,
+                face_focus,
+            )
+            if identity_face is not None:
+                identity_faces.append(identity_face)
 
         # Eye inference can switch from OpenVINO to LiteRT while processing a face.
         # Record the runtime that actually produced the evidence, not the initial choice.
         model_name = self._active_model_name()
         if not regions:
-            return SubjectModelResult(0, 0, 0, 0, 0, None, None, None, model_name)
+            return SubjectModelResult(
+                0,
+                0,
+                0,
+                0,
+                0,
+                None,
+                None,
+                None,
+                model_name,
+                identity_available=self.identity_encoder.available,
+            )
         largest_area = max(region.bounds[2] * region.bounds[3] for region in regions)
         regions = [
             replace(
@@ -544,6 +584,8 @@ class ModelSubjectAnalyzer:
                 eye.state == "obscured" for eye in important_eyes
             ),
             regions=tuple(regions),
+            identity_faces=tuple(identity_faces),
+            identity_available=self.identity_encoder.available,
         )
 
     def _active_model_name(self) -> str:

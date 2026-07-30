@@ -300,6 +300,32 @@ QTabBar::tab:selected {
     border-bottom-color: #5f8ac5;
 }
 
+QToolButton#peopleFilterButton {
+    color: #92959c;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    min-height: 32px;
+    padding: 0 11px;
+}
+
+QToolButton#peopleFilterButton:hover { color: #c8cacf; background: transparent; }
+QToolButton#peopleFilterButton:checked {
+    color: #eeeeef;
+    border-bottom-color: #5f8ac5;
+}
+
+QPushButton[kind="menuRow"] {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 3px 12px 3px 7px;
+    text-align: left;
+}
+
+QPushButton[kind="menuRow"]:hover { background: #3b557a; }
+
 QMenuBar {
     background: #191a1d;
     border-bottom: 1px solid #292a2e;
