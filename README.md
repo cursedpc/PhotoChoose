@@ -157,7 +157,10 @@ outside the current implementation scope.
 Face embeddings are biometric identifiers even though they are not photographs. PhotoChoose keeps
 them only in its local SQLite catalog, never uploads them, and never includes them in photograph
 exports. Automatic identity assignment deliberately favors precision: difficult or ambiguous faces
-remain under **Unknown** instead of being forced into a named person.
+remain under **Unknown** instead of being forced into a named person. A new unnamed person requires
+consistent face evidence from at least three different photographs; isolated faces and pairs stay
+Unknown until more matching photographs are indexed. Existing named people can accept later strong
+single-face matches because the user-confirmed identity already exists.
 
 HEIC/HEIF decoding uses `pi-heif` 1.4.0 and its bundled LGPL-3.0-or-later libheif/libde265
 components. The packaged Python distribution metadata includes `LICENSE.txt` and

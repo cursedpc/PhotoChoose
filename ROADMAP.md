@@ -305,6 +305,10 @@ Identity recognition discovers and groups people automatically across indexed fo
 may name people, merge duplicate groups, or remove an incorrect match; manual corrections must
 survive rescanning and regrouping.
 
+Automatic discovery is deliberately consensus-based: a new unnamed person requires matching,
+sufficiently large face evidence across at least three different photographs. Singletons, pairs,
+small background faces, and ambiguous matches remain **Unknown** rather than creating noisy people.
+
 The following navigation interaction is an explicit product-design decision:
 
 - Add **People** beside the existing **All**, **Best**, **Keep**, and **Review** filters.

@@ -13,6 +13,7 @@ from photochoose.models import IdentityFaceEvidence
 MODEL_DIRECTORY = Path(__file__).with_name("model_assets")
 SFACE_MODEL_PATH = MODEL_DIRECTORY / "face_recognition_sface_2021dec.onnx"
 IDENTITY_MODEL_NAME = "sface-2021dec-opencv-cpu"
+IDENTITY_GROUPING_VERSION = "identity-groups-v3-consensus"
 
 # OpenCV documents a much lower SFace verification threshold. Identity grouping
 # deliberately favors precision: a split person can be merged, while a false
@@ -22,7 +23,10 @@ MULTI_PROTOTYPE_BEST_THRESHOLD = 0.52
 MULTI_PROTOTYPE_AGREEMENT_THRESHOLD = 0.48
 MINIMUM_WINNER_MARGIN = 0.05
 VERY_STRONG_MATCH = 0.72
-MINIMUM_IDENTITY_SEED_QUALITY = 0.38
+MINIMUM_IDENTITY_SEED_QUALITY = 0.52
+MINIMUM_IDENTITY_SEED_AREA = 0.008
+MINIMUM_NEW_PERSON_PHOTOS = 3
+NEW_PERSON_COMPLETE_LINK_THRESHOLD = 0.64
 MAX_PROTOTYPES_PER_PERSON = 8
 
 
@@ -110,12 +114,15 @@ class SFaceIdentityEncoder:
         bounds: Sequence[float], confidence: float, focus_score: Optional[float]
     ) -> float:
         area = max(0.0, float(bounds[2]) * float(bounds[3]))
-        size_quality = min(1.0, np.sqrt(area) / 0.22)
+        size_quality = float(np.clip((np.sqrt(area) - 0.055) / 0.18, 0.0, 1.0))
         focus_quality = 0.45 if focus_score is None else min(1.0, focus_score / 180.0)
         return float(
             max(
                 0.0,
-                min(1.0, 0.45 * confidence + 0.35 * size_quality + 0.20 * focus_quality),
+                min(
+                    1.0,
+                    0.25 * confidence + 0.50 * size_quality + 0.25 * focus_quality,
+                ),
             )
         )
 
@@ -127,6 +134,7 @@ class IdentityMatcher:
         self.database = database
 
     def assign_unknown_faces(self) -> IdentityMatchingStats:
+        self.database.prepare_identity_regroup(IDENTITY_GROUPING_VERSION)
         faces = self.database.list_identity_faces()
         prototypes = self._prototype_map(faces)
         unknown = sorted(
@@ -140,25 +148,117 @@ class IdentityMatcher:
         )
         assigned = 0
         created = 0
-        unresolved = 0
+        remaining = []
+
+        # First attach strong matches to identities that are already trusted,
+        # especially user-named people retained across grouping revisions.
         for face in unknown:
             person_id, confidence = self._best_person(face, prototypes)
             if person_id is None:
-                if float(face["quality"]) < MINIMUM_IDENTITY_SEED_QUALITY:
-                    unresolved += 1
-                    continue
-                person_id = self.database.create_person()
-                confidence = 1.0
-                created += 1
-            self.database.assign_identity_face(
-                int(face["id"]), person_id, confidence, source="automatic"
-            )
-            prototype = dict(face)
-            prototype["person_id"] = person_id
-            prototypes.setdefault(person_id, []).append(prototype)
-            prototypes[person_id] = self._select_prototypes(prototypes[person_id])
+                remaining.append(face)
+                continue
+            self._assign(face, person_id, confidence, prototypes)
             assigned += 1
-        return IdentityMatchingStats(assigned, created, unresolved)
+
+        # A new anonymous person requires consistent evidence across at least
+        # three different photographs. Single faces and pairs remain Unknown.
+        discovered_ids = set()
+        for cluster in self._discover_new_people(remaining):
+            person_id = self.database.create_person()
+            confidence = self._cluster_confidence(cluster)
+            for face in cluster:
+                self._assign(face, person_id, confidence, prototypes)
+                discovered_ids.add(int(face["id"]))
+                assigned += 1
+            created += 1
+
+        # Newly created multi-photo identities may safely absorb additional
+        # weaker faces, but those weak faces can never seed a person themselves.
+        for face in remaining:
+            if int(face["id"]) in discovered_ids:
+                continue
+            person_id, confidence = self._best_person(face, prototypes)
+            if person_id is None:
+                continue
+            self._assign(face, person_id, confidence, prototypes)
+            assigned += 1
+
+        self.database.finish_identity_regroup(IDENTITY_GROUPING_VERSION)
+        return IdentityMatchingStats(assigned, created, len(unknown) - assigned)
+
+    def _assign(
+        self,
+        face: Dict[str, object],
+        person_id: int,
+        confidence: float,
+        prototypes: Dict[int, List[Dict[str, object]]],
+    ) -> None:
+        self.database.assign_identity_face(
+            int(face["id"]), person_id, confidence, source="automatic"
+        )
+        prototype = dict(face)
+        prototype["person_id"] = person_id
+        prototype["person_is_named"] = any(
+            bool(item.get("person_is_named"))
+            for item in prototypes.get(person_id, ())
+        )
+        prototypes.setdefault(person_id, []).append(prototype)
+        prototypes[person_id] = self._select_prototypes(prototypes[person_id])
+
+    def _discover_new_people(
+        self, faces: Sequence[Dict[str, object]]
+    ) -> List[List[Dict[str, object]]]:
+        eligible = [
+            face
+            for face in faces
+            if float(face["quality"]) >= MINIMUM_IDENTITY_SEED_QUALITY
+            and self._face_area(face) >= MINIMUM_IDENTITY_SEED_AREA
+        ]
+        clusters: List[List[Dict[str, object]]] = []
+        for face in eligible:
+            best_cluster = None
+            best_similarity = -1.0
+            for cluster in clusters:
+                if any(
+                    int(example["photo_id"]) == int(face["photo_id"])
+                    for example in cluster
+                ):
+                    continue
+                similarities = [
+                    float(np.dot(face["embedding"], example["embedding"]))
+                    for example in cluster
+                ]
+                if (
+                    similarities
+                    and min(similarities) >= NEW_PERSON_COMPLETE_LINK_THRESHOLD
+                    and float(sum(similarities) / len(similarities)) > best_similarity
+                ):
+                    best_cluster = cluster
+                    best_similarity = float(sum(similarities) / len(similarities))
+            if best_cluster is None:
+                clusters.append([face])
+            else:
+                best_cluster.append(face)
+        return [
+            cluster
+            for cluster in clusters
+            if len({int(face["photo_id"]) for face in cluster})
+            >= MINIMUM_NEW_PERSON_PHOTOS
+        ]
+
+    @staticmethod
+    def _cluster_confidence(cluster: Sequence[Dict[str, object]]) -> float:
+        similarities = [
+            float(np.dot(left["embedding"], right["embedding"]))
+            for index, left in enumerate(cluster)
+            for right in cluster[index + 1 :]
+        ]
+        return max(0.0, min(1.0, min(similarities) if similarities else 1.0))
+
+    @staticmethod
+    def _face_area(face: Dict[str, object]) -> float:
+        bounds = face["bounds"]
+        return max(0.0, float(bounds[2]) * float(bounds[3]))
 
     def _best_person(
         self,
@@ -168,8 +268,10 @@ class IdentityMatcher:
         rejected = set(self.database.rejected_person_ids(int(face["id"])))
         candidates = []
         for person_id, examples in prototypes.items():
-            if person_id in rejected or self.database.person_has_photo(
-                person_id, int(face["photo_id"]), excluding_face_id=int(face["id"])
+            if person_id in rejected or any(
+                int(example["photo_id"]) == int(face["photo_id"])
+                and int(example["id"]) != int(face["id"])
+                for example in examples
             ):
                 continue
             similarities = sorted(

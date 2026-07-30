@@ -306,8 +306,10 @@ QToolButton#peopleFilterButton {
     border: none;
     border-bottom: 2px solid transparent;
     border-radius: 0;
-    min-height: 32px;
-    padding: 0 11px;
+    min-height: 36px;
+    padding: 0 14px;
+    font-size: 14px;
+    font-weight: 600;
 }
 
 QToolButton#peopleFilterButton:hover { color: #c8cacf; background: transparent; }
@@ -322,9 +324,17 @@ QPushButton[kind="menuRow"] {
     border-radius: 0;
     padding: 3px 12px 3px 7px;
     text-align: left;
+    font-size: 14px;
+    font-weight: 600;
 }
 
 QPushButton[kind="menuRow"]:hover { background: #3b557a; }
+
+QMenu#peopleMenu::item {
+    min-height: 32px;
+    padding: 7px 18px;
+    font-size: 13px;
+}
 
 QMenuBar {
     background: #191a1d;

@@ -198,6 +198,11 @@ class PhotoDatabase:
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY(face_id, person_id)
                 );
+
+                CREATE TABLE IF NOT EXISTS identity_metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
                 """
             )
             self._add_missing_project_columns(connection)
@@ -1503,21 +1508,26 @@ class PhotoDatabase:
                 """.format(project_clause),
                 parameters,
             ).fetchall()
+            cover_rows = connection.execute(
+                """
+                SELECT fi.person_id, fi.bounds, ph.relative_path,
+                       ph.preview_relative_path, ph.cached_preview_path,
+                       projects.root_path
+                FROM face_instances AS fi
+                JOIN photos AS ph ON ph.id = fi.photo_id
+                JOIN projects ON projects.id = ph.project_id
+                WHERE fi.person_id IS NOT NULL{0}
+                ORDER BY fi.person_id, fi.quality DESC, fi.id
+                """.format(project_clause),
+                parameters,
+            ).fetchall()
+            covers = {}
+            for cover in cover_rows:
+                covers.setdefault(int(cover["person_id"]), cover)
+
             people: List[PersonIdentity] = []
             for row in rows:
-                cover = connection.execute(
-                    """
-                    SELECT fi.bounds, ph.relative_path, ph.preview_relative_path,
-                           ph.cached_preview_path, projects.root_path
-                    FROM face_instances AS fi
-                    JOIN photos AS ph ON ph.id = fi.photo_id
-                    JOIN projects ON projects.id = ph.project_id
-                    WHERE fi.person_id = ?{0}
-                    ORDER BY fi.quality DESC, fi.id
-                    LIMIT 1
-                    """.format(project_clause),
-                    [row["id"]] + parameters,
-                ).fetchone()
+                cover = covers.get(int(row["id"]))
                 cover_path = None
                 cover_bounds = None
                 if cover is not None:
@@ -1661,8 +1671,67 @@ class PhotoDatabase:
             )
             connection.execute("DELETE FROM face_instances")
             connection.execute("DELETE FROM persons")
+            connection.execute("DELETE FROM identity_metadata")
             connection.commit()
         return person_count, face_count
+
+    def prepare_identity_regroup(self, grouping_version: str) -> bool:
+        """Clear obsolete unnamed automatic groups once per grouping version."""
+
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT value FROM identity_metadata WHERE key = 'grouping_version'"
+            ).fetchone()
+            if row is not None and row["value"] == grouping_version:
+                return False
+            connection.execute(
+                """
+                UPDATE face_instances SET
+                    person_id = NULL, assignment_source = 'unknown',
+                    assignment_confidence = NULL, updated_at = CURRENT_TIMESTAMP
+                WHERE assignment_source = 'automatic'
+                  AND person_id IN (
+                      SELECT id FROM persons
+                      WHERE NULLIF(TRIM(display_name), '') IS NULL
+                  )
+                """
+            )
+            connection.execute(
+                """
+                DELETE FROM persons
+                WHERE NULLIF(TRIM(display_name), '') IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM face_instances
+                      WHERE face_instances.person_id = persons.id
+                  )
+                """
+            )
+            connection.commit()
+        return True
+
+    def identity_regroup_needed(self, grouping_version: str) -> bool:
+        with closing(self._connect()) as connection:
+            has_faces = connection.execute(
+                "SELECT 1 FROM face_instances LIMIT 1"
+            ).fetchone()
+            if has_faces is None:
+                return False
+            row = connection.execute(
+                "SELECT value FROM identity_metadata WHERE key = 'grouping_version'"
+            ).fetchone()
+        return row is None or row["value"] != grouping_version
+
+    def finish_identity_regroup(self, grouping_version: str) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                """
+                INSERT INTO identity_metadata(key, value)
+                VALUES ('grouping_version', ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (grouping_version,),
+            )
+            connection.commit()
 
     def reset_automatic_groups(self, project_id: int) -> None:
         with closing(self._connect()) as connection:

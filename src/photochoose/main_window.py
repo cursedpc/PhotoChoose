@@ -61,6 +61,10 @@ from photochoose.database import PhotoDatabase
 from photochoose.exporter import ProjectExporter
 from photochoose.folder_monitor import FolderMonitor
 from photochoose.fullscreen_viewer import FullscreenPhotoDialog
+from photochoose.identity_recognition import (
+    IDENTITY_GROUPING_VERSION,
+    IdentityMatcher,
+)
 from photochoose.keyboard_shortcuts import LayoutIndependentShortcutFilter
 from photochoose.models import Decision, PhotoView, Project
 from photochoose.onboarding import OnboardingController
@@ -160,6 +164,26 @@ class _AnalysisTask(QRunnable):
         self.signals.finished.emit(self.project_id, totals)
 
 
+class _IdentityRegroupSignals(QObject):
+    finished = Signal(object)
+    failed = Signal(str)
+
+
+class _IdentityRegroupTask(QRunnable):
+    def __init__(self, database: PhotoDatabase) -> None:
+        super().__init__()
+        self.database = database
+        self.signals = _IdentityRegroupSignals()
+
+    def run(self) -> None:
+        try:
+            stats = IdentityMatcher(self.database).assign_unknown_faces()
+        except Exception as exc:
+            self.signals.failed.emit(str(exc))
+            return
+        self.signals.finished.emit(stats)
+
+
 class _ExportSignals(QObject):
     progress = Signal(int, int, int)
     finished = Signal(int, object)
@@ -209,6 +233,7 @@ class MainWindow(QMainWindow):
         self._project_import_queue: list[Project] = []
         self._active_import_project_id: Optional[int] = None
         self._status_before_folder_drag = ""
+        self._identity_regroup_running = False
         self.photo_model = PhotoListModel(database, self)
         self.fullscreen_dialog: Optional[FullscreenPhotoDialog] = None
         self.comparison_dialog: Optional[GroupComparisonDialog] = None
@@ -227,6 +252,7 @@ class MainWindow(QMainWindow):
         self._install_shortcuts()
         self._load_projects()
         self.onboarding = OnboardingController(self)
+        QTimer.singleShot(0, self._start_identity_regroup_if_needed)
 
     def _create_project_actions(self) -> None:
         self.add_project_action = QAction("Add shoot folder…", self)
@@ -1048,6 +1074,49 @@ class MainWindow(QMainWindow):
             7000,
         )
 
+    def _start_identity_regroup_if_needed(self) -> None:
+        if self._identity_regroup_running or not self.database.identity_regroup_needed(
+            IDENTITY_GROUPING_VERSION
+        ):
+            return
+        self._identity_regroup_running = True
+        self.people_button.setEnabled(False)
+        self.people_button.setText("People  ·  grouping…")
+        task = _IdentityRegroupTask(self.database)
+        task.signals.finished.connect(self._identity_regroup_finished)
+        task.signals.failed.connect(self._identity_regroup_failed)
+        self.thread_pool.start(task)
+
+    @Slot(object)
+    def _identity_regroup_finished(self, stats) -> None:
+        self._identity_regroup_running = False
+        self.people_button.setEnabled(not self._identity_regroup_running)
+        self.people_button.setText(
+            "People  ·  {0}".format(self.identity_label)
+            if self.identity_filter_active
+            else "People"
+        )
+        self.people_menu.rebuild()
+        if self.identity_filter_active:
+            self._refresh_photos()
+        if stats.created_people or stats.unknown:
+            self.statusBar().showMessage(
+                "People regrouped · {0} identities · {1} faces remain Unknown".format(
+                    stats.created_people,
+                    stats.unknown,
+                ),
+                7000,
+            )
+
+    @Slot(str)
+    def _identity_regroup_failed(self, message: str) -> None:
+        self._identity_regroup_running = False
+        self.people_button.setEnabled(True)
+        self.people_button.setText("People")
+        self.statusBar().showMessage(
+            "People regrouping failed: {0}".format(message), 7000
+        )
+
     def _clear_identity_filter(self) -> None:
         if not self.identity_filter_active:
             return
@@ -1541,7 +1610,7 @@ class MainWindow(QMainWindow):
         for action in self.view_menu_actions:
             action.setEnabled(has_folder)
         self.view_tabs.setEnabled(has_folder)
-        self.people_button.setEnabled(True)
+        self.people_button.setEnabled(not self._identity_regroup_running)
         self.photo_grid.setEnabled(has_photo_context)
         self.inspector.toggle_button.setEnabled(has_photo_context)
         self.close_folder_shortcut.setEnabled(enabled)
