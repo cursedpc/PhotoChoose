@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QImage, QKeyEvent, QPixmap, QResizeEvent
@@ -34,6 +34,7 @@ class ComparisonPane(QFrame):
         self.image = QImage()
         self.zoom_percent = 100
         self.overlay_enabled = False
+        self.highlighted_face_indices: Tuple[int, ...] = ()
         self.setObjectName("comparisonPane")
 
         layout = QVBoxLayout(self)
@@ -129,6 +130,11 @@ class ComparisonPane(QFrame):
         self.overlay_enabled = enabled
         self._refresh_pixmap()
 
+    def set_highlighted_face_indices(self, indices: Sequence[int]) -> None:
+        self.highlighted_face_indices = tuple(indices)
+        if self.overlay_enabled:
+            self._refresh_pixmap()
+
     def _load_image(self, path: str) -> None:
         self.image = read_qimage(path, QSize(2200, 2200))
         if self.image.isNull():
@@ -143,7 +149,11 @@ class ComparisonPane(QFrame):
             return
         display_image = self.image
         if self.overlay_enabled and self.photo is not None:
-            display_image = render_analysis_overlay(display_image, self.photo)
+            display_image = render_analysis_overlay(
+                display_image,
+                self.photo,
+                highlighted_face_indices=self.highlighted_face_indices,
+            )
         self.image_label.setPixmap(QPixmap.fromImage(display_image))
         self._resize_image()
 
@@ -188,10 +198,19 @@ class GroupComparisonDialog(QDialog):
         photos: Sequence[Photo],
         anchor_photo_id: int,
         parent: Optional[QWidget] = None,
+        highlight_person_id: Optional[int] = None,
     ) -> None:
         super().__init__(parent)
         self.database = database
         self.photos: List[Photo] = list(photos)
+        self.highlight_person_id = highlight_person_id
+        self._identity_face_indices: Dict[int, Tuple[int, ...]] = (
+            database.face_indices_for_person(
+                highlight_person_id, [photo.id for photo in self.photos]
+            )
+            if highlight_person_id is not None
+            else {}
+        )
         self.anchor_index = self._index_for_id(anchor_photo_id)
         self.candidate_index = self._next_distinct(self.anchor_index, 1)
         self._syncing_scroll = False
@@ -283,8 +302,16 @@ class GroupComparisonDialog(QDialog):
         group = self.photos[0].similarity_group or "Group"
         reason = self.photos[0].group_reason or "Similar photographs"
         self.group_label.setText("{0} · {1}".format(group, reason))
-        self.left_pane.set_photo(self.photos[self.anchor_index])
-        self.right_pane.set_photo(self.photos[self.candidate_index])
+        left_photo = self.photos[self.anchor_index]
+        right_photo = self.photos[self.candidate_index]
+        self.left_pane.set_highlighted_face_indices(
+            self._identity_face_indices.get(left_photo.id, ())
+        )
+        self.right_pane.set_highlighted_face_indices(
+            self._identity_face_indices.get(right_photo.id, ())
+        )
+        self.left_pane.set_photo(left_photo)
+        self.right_pane.set_photo(right_photo)
 
     @Slot()
     def previous_candidate(self) -> None:
@@ -343,6 +370,13 @@ class GroupComparisonDialog(QDialog):
         group_id = self.photos[0].similarity_group
         all_photos = self.database.list_photos(self.photos[0].project_id, PhotoView.ALL)
         self.photos = [photo for photo in all_photos if photo.similarity_group == group_id]
+        self._identity_face_indices = (
+            self.database.face_indices_for_person(
+                self.highlight_person_id, [photo.id for photo in self.photos]
+            )
+            if self.highlight_person_id is not None
+            else {}
+        )
         self.anchor_index = self._index_for_id(anchor_id)
         self.candidate_index = self._index_for_id(candidate_id)
         self.photosChanged.emit()

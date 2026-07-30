@@ -144,16 +144,19 @@ class FullscreenImageCanvas(QLabel):
         self._overlay_photo: Optional[Photo] = None
         self._overlay_visibility = AnalysisOverlayVisibility()
         self._overlay_enabled = False
+        self._highlighted_face_indices: Tuple[int, ...] = ()
 
     def set_analysis_overlay(
         self,
         photo: Optional[Photo],
         visibility: AnalysisOverlayVisibility,
         enabled: bool,
+        highlighted_face_indices: Sequence[int] = (),
     ) -> None:
         self._overlay_photo = photo
         self._overlay_visibility = visibility
         self._overlay_enabled = enabled
+        self._highlighted_face_indices = tuple(highlighted_face_indices)
         self.update()
 
     def paintEvent(self, event: QPaintEvent) -> None:
@@ -175,6 +178,7 @@ class FullscreenImageCanvas(QLabel):
             self._overlay_photo,
             show_labels=True,
             visibility=self._overlay_visibility,
+            highlighted_face_indices=self._highlighted_face_indices,
         )
 
 
@@ -243,6 +247,8 @@ class FullscreenPhotoDialog(QDialog):
         photos: Sequence[Photo],
         current_index: int = 0,
         parent: Optional[QWidget] = None,
+        highlight_person_id: Optional[int] = None,
+        highlight_person_label: str = "",
     ) -> None:
         super().__init__(parent)
         self.database = database
@@ -258,6 +264,15 @@ class FullscreenPhotoDialog(QDialog):
         self._center_after_render = False
         self._zoom_interaction_active = False
         self.overlay_enabled = False
+        self.highlight_person_id = highlight_person_id
+        self.highlight_person_label = highlight_person_label
+        self._identity_face_indices = (
+            database.face_indices_for_person(
+                highlight_person_id, [photo.id for photo in self.photos]
+            )
+            if highlight_person_id is not None
+            else {}
+        )
         self._overlay_visibility_by_photo: Dict[int, AnalysisOverlayVisibility] = {}
         self.overlay_global_combo: Optional[QComboBox] = None
         self.overlay_category_combos: Dict[str, QComboBox] = {}
@@ -527,6 +542,7 @@ class FullscreenPhotoDialog(QDialog):
             self.current_photo,
             self._current_overlay_visibility(),
             self.overlay_enabled,
+            self._current_identity_face_indices(),
         )
         pixmap = QPixmap.fromImage(display_image)
         pixmap.setDevicePixelRatio(self._current_device_pixel_ratio)
@@ -755,6 +771,12 @@ class FullscreenPhotoDialog(QDialog):
             photo.id, AnalysisOverlayVisibility()
         )
 
+    def _current_identity_face_indices(self) -> Tuple[int, ...]:
+        photo = self.current_photo
+        if photo is None:
+            return ()
+        return self._identity_face_indices.get(photo.id, ())
+
     def _update_overlay_controls_visibility(self) -> None:
         self.overlay_controls_scroll.setVisible(
             self.overlay_enabled and self.current_photo is not None
@@ -800,7 +822,13 @@ class FullscreenPhotoDialog(QDialog):
                 (
                     (index, -1),
                     "Face {0}{1}".format(
-                        index + 1, " · primary" if face.important else ""
+                        index + 1,
+                        " · {0}".format(self.highlight_person_label)
+                        if index in self._current_identity_face_indices()
+                        and self.highlight_person_label
+                        else " · primary"
+                        if face.important
+                        else "",
                     ),
                     is_evidence_item_visible(
                         photo, visibility, "faces", index

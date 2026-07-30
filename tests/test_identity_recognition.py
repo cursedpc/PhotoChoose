@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
@@ -183,6 +184,7 @@ class IdentityRecognitionTests(unittest.TestCase):
 
     def test_people_filter_opens_global_and_folder_scoped_photos(self) -> None:
         from PIL import Image
+        from PySide6.QtCore import QPoint
         from PySide6.QtTest import QTest
 
         from photochoose.app import create_application
@@ -203,20 +205,58 @@ class IdentityRecognitionTests(unittest.TestCase):
             )
         IdentityMatcher(self.database).assign_unknown_faces()
         person = self.database.list_people()[0]
+        _fourth_project, fourth = self._photo("Fourth", "other.jpg")
+        self.database.replace_identity_faces(
+            fourth.id, (self._face(0, [0.0, 1.0]),)
+        )
+        fourth_face = next(
+            face
+            for face in self.database.list_identity_faces()
+            if int(face["photo_id"]) == fourth.id
+        )
+        other_person_id = self.database.create_person()
+        self.database.assign_identity_face(
+            int(fourth_face["id"]), other_person_id, 1.0, source="manual"
+        )
 
         app = create_application(
             ["photochoose-identity-ui-test"], self.database.path
         )
         window = app.main_window
         window.people_menu.rebuild()
-        self.assertEqual(1, len(window.people_menu._rows))
+        self.assertEqual(2, len(window.people_menu._rows))
         QTest.qWait(300)
         app.processEvents()
-        self.assertEqual(1, len(window.people_menu._icon_cache))
+        self.assertIn(person.id, window.people_menu._icon_cache)
+        menu = window.people_menu
+        menu.popup(QPoint(20, 20))
+        app.processEvents()
+        first_row = menu._rows[person.id]
+        second_row = menu._rows[other_person_id]
+        with patch(
+            "photochoose.people_menu.QCursor.pos",
+            return_value=first_row.mapToGlobal(first_row.rect().center()),
+        ):
+            menu._active_folder_person_id = None
+            menu._follow_person_hover()
+        self.assertEqual(person.id, menu._active_folder_person_id)
+        with patch(
+            "photochoose.people_menu.QCursor.pos",
+            return_value=second_row.mapToGlobal(second_row.rect().center()),
+        ):
+            menu._follow_person_hover()
+        self.assertEqual(other_person_id, menu._active_folder_person_id)
+        menu.close()
         window._person_filter_selected(person.id, None, person.display_name)
         app.processEvents()
         self.assertTrue(window.people_button.isChecked())
         self.assertEqual(3, window.photo_model.rowCount())
+        self.assertEqual(
+            (0,),
+            window.photo_model.index(0, 0).data(
+                window.photo_model.HighlightedFacesRole
+            ),
+        )
 
         window._person_filter_selected(
             person.id, first_project.id, person.display_name

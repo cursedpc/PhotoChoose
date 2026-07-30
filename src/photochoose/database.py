@@ -1633,6 +1633,37 @@ class PhotoDatabase:
             ).fetchall()
         return tuple(int(row["person_id"]) for row in rows)
 
+    def face_indices_for_person(
+        self,
+        person_id: int,
+        photo_ids: Optional[Sequence[int]] = None,
+    ) -> Dict[int, Tuple[int, ...]]:
+        """Return the detected face numbers assigned to one person by photograph."""
+
+        parameters: List[object] = [person_id]
+        photo_clause = ""
+        if photo_ids is not None:
+            normalized_ids = tuple(dict.fromkeys(int(photo_id) for photo_id in photo_ids))
+            if not normalized_ids:
+                return {}
+            photo_clause = " AND photo_id IN ({0})".format(
+                ",".join("?" for _ in normalized_ids)
+            )
+            parameters.extend(normalized_ids)
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT photo_id, face_index FROM face_instances
+                WHERE person_id = ?{0}
+                ORDER BY photo_id, face_index
+                """.format(photo_clause),
+                parameters,
+            ).fetchall()
+        grouped: Dict[int, List[int]] = {}
+        for row in rows:
+            grouped.setdefault(int(row["photo_id"]), []).append(int(row["face_index"]))
+        return {photo_id: tuple(indices) for photo_id, indices in grouped.items()}
+
     def people_for_photo(self, photo_id: int) -> List[Tuple[int, str]]:
         with closing(self._connect()) as connection:
             rows = connection.execute(

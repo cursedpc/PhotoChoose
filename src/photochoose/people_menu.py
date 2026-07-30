@@ -10,10 +10,11 @@ from PySide6.QtCore import (
     QSize,
     Qt,
     QThreadPool,
+    QTimer,
     Signal,
     Slot,
 )
-from PySide6.QtGui import QEnterEvent, QIcon, QImage, QPixmap
+from PySide6.QtGui import QCursor, QEnterEvent, QIcon, QImage, QPixmap
 from PySide6.QtWidgets import QMenu, QPushButton, QWidgetAction
 
 from photochoose.database import PhotoDatabase
@@ -89,12 +90,22 @@ class PeopleMenu(QMenu):
         self._icon_cache: OrderedDict[int, QIcon] = OrderedDict()
         self._icon_requests = set()
         self._rows = {}
+        self._people_by_id = {}
+        self._folder_cache = {}
+        self._active_folder_person_id: Optional[int] = None
+        self._hover_timer = QTimer(self)
+        self._hover_timer.setInterval(35)
+        self._hover_timer.timeout.connect(self._follow_person_hover)
         self.aboutToShow.connect(self.rebuild)
+        self.aboutToShow.connect(self._hover_timer.start)
+        self.aboutToHide.connect(self._menu_hidden)
 
     def rebuild(self) -> None:
         self.clear()
         self._rows.clear()
+        self._folder_cache.clear()
         people = self.database.list_people()
+        self._people_by_id = {person.id: person for person in people}
         unknown_count = self.database.identity_unknown_count()
         if not people and not unknown_count:
             empty = self.addAction("No recognized people yet")
@@ -172,6 +183,12 @@ class PeopleMenu(QMenu):
         self.personSelected.emit(person_id, project_id, label)
 
     def _show_folders(self, person: PersonIdentity, point: QPoint) -> None:
+        if (
+            self._active_folder_person_id == person.id
+            and self._folder_menu is not None
+            and self._folder_menu.isVisible()
+        ):
+            return
         if self._folder_menu is not None:
             self._folder_menu.close()
         menu = QMenu(self)
@@ -189,7 +206,10 @@ class PeopleMenu(QMenu):
         merge.triggered.connect(
             lambda _checked=False: self._merge(person.id)
         )
-        folders = self.database.list_person_folders(person.id)
+        folders = self._folder_cache.get(person.id)
+        if folders is None:
+            folders = self.database.list_person_folders(person.id)
+            self._folder_cache[person.id] = folders
         if folders:
             menu.addSeparator()
         for folder in folders:
@@ -202,7 +222,37 @@ class PeopleMenu(QMenu):
                 )
             )
         self._folder_menu = menu
+        self._active_folder_person_id = person.id
         menu.popup(point)
+
+    def _follow_person_hover(self) -> None:
+        """Keep the folder flyout synchronized even while a QMenu owns the mouse."""
+
+        if not self.isVisible():
+            return
+        cursor = QCursor.pos()
+        for person_id, row in self._rows.items():
+            if row.isVisible() and row.rect().contains(row.mapFromGlobal(cursor)):
+                if person_id != self._active_folder_person_id:
+                    person = self._people_by_id.get(person_id)
+                    if person is not None:
+                        self._show_folders(
+                            person,
+                            row.mapToGlobal(QPoint(row.width(), 0)),
+                        )
+                return
+        if self.rect().contains(self.mapFromGlobal(cursor)):
+            if self._folder_menu is not None:
+                self._folder_menu.close()
+                self._folder_menu = None
+            self._active_folder_person_id = None
+
+    def _menu_hidden(self) -> None:
+        self._hover_timer.stop()
+        if self._folder_menu is not None:
+            self._folder_menu.close()
+            self._folder_menu = None
+        self._active_folder_person_id = None
 
     def _rename(self, person_id: int, current_name: str) -> None:
         if self._folder_menu is not None:

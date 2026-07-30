@@ -1384,6 +1384,14 @@ class MainWindow(QMainWindow):
             list(self.photo_model.photos),
             index.row(),
             None,
+            highlight_person_id=(
+                self.identity_person_id if self.identity_filter_active else None
+            ),
+            highlight_person_label=(
+                self.identity_label
+                if self.identity_filter_active and self.identity_person_id is not None
+                else ""
+            ),
         )
         dialog.finished.connect(self._fullscreen_closed)
         self.fullscreen_dialog = dialog
@@ -1516,7 +1524,15 @@ class MainWindow(QMainWindow):
         )
         if len(group) < 2:
             return
-        dialog = GroupComparisonDialog(self.database, group, selected.id, None)
+        dialog = GroupComparisonDialog(
+            self.database,
+            group,
+            selected.id,
+            None,
+            highlight_person_id=(
+                self.identity_person_id if self.identity_filter_active else None
+            ),
+        )
         dialog.finished.connect(self._comparison_closed)
         self.comparison_dialog = dialog
         dialog.showMaximized()
