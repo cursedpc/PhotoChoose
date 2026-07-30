@@ -109,6 +109,26 @@ class PhotoDatabaseTests(unittest.TestCase):
         self.assertTrue(keep[0].is_best)
         self.assertEqual("manual", keep[0].best_source)
 
+    def test_opening_catalog_removes_legacy_automatic_best_only(self) -> None:
+        self._write_photo("automatic.jpg")
+        self._write_photo("manual.jpg")
+        project = self.database.add_project(self.shoot)
+        self.database.scan_project(project.id)
+        photos = self.database.list_photos(project.id, PhotoView.ALL)
+        self.database.toggle_best([photos[1].id])
+        with self.database._connect() as connection:
+            connection.execute(
+                "UPDATE photos SET is_best = 1, best_source = 'automatic' WHERE id = ?",
+                (photos[0].id,),
+            )
+            connection.commit()
+
+        reopened = PhotoDatabase(self.database.path)
+        marked = reopened.list_photos(project.id, PhotoView.BEST)
+
+        self.assertEqual([photos[1].id], [photo.id for photo in marked])
+        self.assertEqual("manual", marked[0].best_source)
+
     def test_rescan_preserves_decisions_and_removes_missing_records(self) -> None:
         first_path = self._write_photo("one.jpg")
         self._write_photo("two.jpg")
@@ -299,97 +319,25 @@ class PhotoDatabaseTests(unittest.TestCase):
         self.assertEqual(("Possibly soft",), preserved_snapshot["auto_reasons"])
         self.assertEqual(18.0, preserved_snapshot["focus_score"])
 
-    def test_best_count_selects_diverse_frames_and_preserves_manual_best(self) -> None:
-        for filename in ("a.jpg", "b.jpg", "c.jpg", "d.jpg"):
+    def test_group_rankings_never_assign_best(self) -> None:
+        for filename in ("a.jpg", "b.jpg"):
             self._write_photo(filename)
         project = self.database.add_project(self.shoot)
         self.database.scan_project(project.id)
         photos = self.database.list_photos(project.id, PhotoView.ALL)
-        hashes = {
-            "a.jpg": "0000000000000000",
-            "b.jpg": "0000000000000001",
-            "c.jpg": "00000000000003ff",
-            "d.jpg": "0000000003ff0000",
-        }
-        scores = {"a.jpg": 100.0, "b.jpg": 90.0, "c.jpg": 80.0, "d.jpg": 70.0}
-        by_name = {photo.filename: photo for photo in photos}
-        for photo in photos:
-            self.database.apply_analysis(
-                photo.id,
-                Decision.KEEP,
-                100.0,
-                0.5,
-                0.0,
-                0.0,
-                photo.filename,
-                ("Passed",),
-                None,
-            )
-            self.database.apply_subject_analysis(
-                photo.id,
-                hashes[photo.filename],
-                0,
-                0,
-                0,
-                0,
-                None,
-                "none",
-                None,
-                None,
-            )
+        for index, photo in enumerate(photos):
             self.database.set_similarity_group(
-                photo.id, "B0001", scores[photo.filename], "Test burst"
+                photo.id, "B0001", 100.0 - index, "Test burst"
             )
 
-        selected = self.database.set_project_best_count(project.id, 3)
-        first_pass = {
-            photo.filename: photo
-            for photo in self.database.list_photos(project.id, PhotoView.ALL)
-        }
-        self.assertEqual(3, selected)
-        self.assertEqual(3, self.database.get_project(project.id).best_count_per_group)
-        self.assertEqual(
-            {"a.jpg", "c.jpg", "d.jpg"},
-            {name for name, photo in first_pass.items() if photo.is_best},
-        )
+        self.database.set_decision([photos[0].id], Decision.KEEP)
+        ranked = self.database.list_photos(project.id, PhotoView.ALL)
 
-        self.database.toggle_best([by_name["b.jpg"].id])
-        after_manual = {
-            photo.filename: photo
-            for photo in self.database.list_photos(project.id, PhotoView.ALL)
-        }
-        self.assertEqual(
-            {"b.jpg", "c.jpg", "d.jpg"},
-            {name for name, photo in after_manual.items() if photo.is_best},
-        )
-        selected = self.database.set_project_best_count(project.id, 2)
-        manual_pass = {
-            photo.filename: photo
-            for photo in self.database.list_photos(project.id, PhotoView.ALL)
-        }
-        self.assertEqual(1, selected)
-        self.assertEqual(
-            {"b.jpg", "c.jpg"},
-            {name for name, photo in manual_pass.items() if photo.is_best},
-        )
-        self.assertEqual("manual", manual_pass["b.jpg"].best_source)
-        self.assertEqual("automatic", manual_pass["c.jpg"].best_source)
-
-        self.database.set_decision([by_name["c.jpg"].id], Decision.REJECT)
-        after_reject = {
-            photo.filename: photo
-            for photo in self.database.list_photos(project.id, PhotoView.ALL)
-        }
-        self.assertEqual(
-            {"b.jpg", "d.jpg"},
-            {name for name, photo in after_reject.items() if photo.is_best},
-        )
-        self.assertEqual("automatic", after_reject["d.jpg"].best_source)
-
-        with self.assertRaises(ValueError):
-            self.database.set_project_best_count(project.id, 0)
-        with self.assertRaises(ValueError):
-            self.database.set_project_best_count(project.id, 6)
+        self.assertFalse(any(photo.is_best for photo in ranked))
+        self.database.toggle_best([photos[1].id])
+        marked = self.database.list_photos(project.id, PhotoView.BEST)
+        self.assertEqual([photos[1].id], [photo.id for photo in marked])
+        self.assertEqual("manual", marked[0].best_source)
 
     def test_subject_evidence_round_trips_through_database(self) -> None:
         self._write_photo("one.jpg")

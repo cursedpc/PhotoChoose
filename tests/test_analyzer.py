@@ -73,8 +73,8 @@ class BaselineAnalyzerTests(unittest.TestCase):
             analyzed["sharp-copy.jpg"].duplicate_of_id,
         )
         self.assertIn("Exact duplicate", analyzed["sharp-copy.jpg"].auto_reasons[0])
-        self.assertTrue(analyzed["sharp.jpg"].is_best)
-        self.assertEqual("automatic", analyzed["sharp.jpg"].best_source)
+        self.assertFalse(analyzed["sharp.jpg"].is_best)
+        self.assertEqual("none", analyzed["sharp.jpg"].best_source)
         self.assertEqual(
             analyzed["sharp.jpg"].similarity_group,
             analyzed["sharp-copy.jpg"].similarity_group,
@@ -168,8 +168,8 @@ class BaselineAnalyzerTests(unittest.TestCase):
         self.assertIsNotNone(sharp_photo.similarity_group)
         self.assertEqual(sharp_photo.similarity_group, soft_photo.similarity_group)
         self.assertGreater(sharp_photo.best_score, soft_photo.best_score)
-        self.assertTrue(sharp_photo.is_best)
-        self.assertEqual("automatic", sharp_photo.best_source)
+        self.assertFalse(sharp_photo.is_best)
+        self.assertEqual("none", sharp_photo.best_source)
         self.assertFalse(soft_photo.is_best)
 
         self.database.toggle_best([sharp_photo.id])
@@ -177,10 +177,10 @@ class BaselineAnalyzerTests(unittest.TestCase):
         reranked = {
             photo.filename: photo for photo in self.database.list_photos(project.id, PhotoView.ALL)
         }
-        self.assertFalse(reranked["frame-001.jpg"].is_best)
+        self.assertTrue(reranked["frame-001.jpg"].is_best)
         self.assertEqual("manual", reranked["frame-001.jpg"].best_source)
-        self.assertTrue(reranked["frame-002.jpg"].is_best)
-        self.assertEqual("automatic", reranked["frame-002.jpg"].best_source)
+        self.assertFalse(reranked["frame-002.jpg"].is_best)
+        self.assertEqual("none", reranked["frame-002.jpg"].best_source)
 
     def test_uncertain_eyes_and_soft_face_are_sent_to_review(self) -> None:
         decision, reasons = BaselineAnalyzer._classify(
@@ -430,7 +430,7 @@ class BaselineAnalyzerTests(unittest.TestCase):
         first_result = AnalysisResult(perceptual_hash="0000000000000000", **common)
         second_result = AnalysisResult(perceptual_hash="0000000000000fff", **common)
 
-        BaselineAnalyzer(self.database)._group_and_select_best(
+        BaselineAnalyzer(self.database)._group_and_rank(
             project.id,
             [(first, first_result), (second, second_result)],
         )
@@ -440,14 +440,13 @@ class BaselineAnalyzerTests(unittest.TestCase):
         self.assertEqual(grouped[0].similarity_group, grouped[1].similarity_group)
         self.assertIn("1.25s", grouped[0].group_reason)
 
-    def test_project_best_limit_is_used_after_group_ranking(self) -> None:
+    def test_group_ranking_does_not_assign_best(self) -> None:
         for filename in ("burst-a.jpg", "burst-b.jpg", "burst-c.jpg"):
             (self.shoot / filename).write_bytes(
                 self._jpeg_bytes(np.full((200, 300, 3), 120, dtype=np.uint8))
             )
         project = self.database.add_project(self.shoot)
         self.database.scan_project(project.id)
-        self.database.set_project_best_count(project.id, 2)
         photos = self.database.list_photos(project.id, PhotoView.ALL)
         hashes = (
             "0000000000000000",
@@ -507,13 +506,11 @@ class BaselineAnalyzerTests(unittest.TestCase):
                 )
             )
 
-        BaselineAnalyzer(self.database)._group_and_select_best(project.id, analyzed)
+        BaselineAnalyzer(self.database)._group_and_rank(project.id, analyzed)
 
         ranked = self.database.list_photos(project.id, PhotoView.ALL)
-        self.assertEqual(
-            {"burst-a.jpg", "burst-b.jpg"},
-            {photo.filename for photo in ranked if photo.is_best},
-        )
+        self.assertFalse(any(photo.is_best for photo in ranked))
+        self.assertGreater(ranked[0].best_score, ranked[1].best_score)
 
     def test_much_weaker_burst_frame_is_rejected_but_manual_review_is_safe(self) -> None:
         for filename in ("strong.jpg", "weak.jpg", "manual.jpg"):
@@ -582,7 +579,7 @@ class BaselineAnalyzerTests(unittest.TestCase):
         )
         manual_result = replace(weak_result, perceptual_hash="00000000000007ff")
 
-        BaselineAnalyzer(self.database)._group_and_select_best(
+        BaselineAnalyzer(self.database)._group_and_rank(
             project.id,
             [
                 (timestamped["strong.jpg"], strong_result),

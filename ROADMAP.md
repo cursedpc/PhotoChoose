@@ -27,7 +27,7 @@ The initial development environment is macOS. The target production environment 
 6. Run inexpensive technical checks and group duplicates, bursts, and similar scenes.
 7. Analyze faces, eyes, subjects, focus, exposure, and image quality.
 8. Classify photographs into **Keep**, **Review**, and **Reject**. These states are mutually exclusive.
-9. Mark the highest-ranked photographs as **Best**, an independent flag normally applied to kept photographs.
+9. Let the photographer mark chosen photographs as **Best**; automatic analysis only ranks them.
 10. Let the photographer compare, override, and lock decisions.
 11. On explicit confirmation, export XMP ratings or copy/move complete file groups.
 
@@ -46,7 +46,7 @@ The initial development environment is macOS. The target production environment 
 - Face detection, eye-state estimation, and face/eye sharpness analysis.
 - Basic exposure and clipping checks.
 - Conservative Keep/Review/Reject classification.
-- Best-in-group ranking.
+- Best-in-group ranking without automatic Best marks.
 - Side-by-side comparison of related photographs.
 - Reasons and confidence for every recommendation.
 - Local database for cached results and user overrides.
@@ -307,17 +307,31 @@ survive rescanning and regrouping.
 
 Automatic discovery is deliberately consensus-based: a new unnamed person requires matching,
 sufficiently large face evidence across at least three different photographs. Singletons, pairs,
-small background faces, and ambiguous matches remain **Unknown** rather than creating noisy people.
+small background faces, isolated lookalikes, and ambiguous matches remain **Unknown** rather than
+creating noisy people. Every automatic seed face must have at least two very strong peer matches.
+Reliable appearance seeds are merged by aggregate identity with same-photo exclusions. A recurring
+person that already covers a substantial part of one folder can then recover moderate unmatched
+faces from missing photographs, while never claiming a second face in the same photograph.
+The face-detector recall floor is calibrated separately from identity confidence: a possible face
+may be retained for matching without being allowed to establish a person on its own.
+
+The portable recognition baseline uses OpenVINO's Apache-licensed
+`face-reidentification-retail-0095` model with its documented five-landmark alignment. Large
+photographs receive both standard and high-resolution YuNet detection passes. A read-only benchmark
+tool compares embedding distributions against copied catalogs; calibration must never mutate the
+user's live database. AdaFace remains a future replaceable-backend candidate if pretrained-weight
+redistribution and a verified portable ONNX export become unambiguous.
 
 The following navigation interaction is an explicit product-design decision:
 
 - Add **People** beside the existing **All**, **Best**, **Keep**, and **Review** filters.
 - Opening **People** displays compact identity thumbnails with labels and counts, for example:
   **Person 1 · 37**, **Person 2 · 14**, and **Unknown · 8**.
-- Clicking a person opens every indexed photograph containing that person.
-- Hovering over a person expands a folder dropdown listing folders that contain photographs of
-  that person.
-- Clicking a folder in that dropdown opens only that person's photographs from that folder.
+- Counts and photographs are scoped to the folder currently open in the workspace. Identity data
+  remains global in the database so future folders can recognize the same person, but closed-folder
+  photographs never appear in the active People view.
+- Clicking a person directly filters the open folder. There is no hover flyout. Rename and Merge
+  remain available from the person's context menu.
 
 ## First implementation slice
 
@@ -360,10 +374,9 @@ local calibration events. A local calibration report summarizes disagreements by
 signal, snapshots the evidence behind each correction, and emits suggestions only after a
 minimum repeated sample count. It never changes thresholds automatically.
 
-Projects now also store a 1–5 maximum for automatic Best frames per group. Best reselection uses
-stored rankings immediately, preserves all manual Best choices, and requires a minimum perceptual
-distance between automatic selections so the configured maximum does not fill with nearly
-identical frames.
+Best is now exclusively controlled by the photographer. Stored group scores remain available for
+comparison and relative rejection, but analysis never applies or removes a Best mark. Legacy
+automatic Best flags are cleared when the catalog opens.
 
 Real threshold tuning and performance validation are deliberately deferred until representative
 large shoots can run on the target machine. Eye visibility is now separated from eyelid geometry:
@@ -410,8 +423,8 @@ encoding, and interpreting auxiliary/depth HEIF images as photographs stay outsi
 
 The working prototype now exceeds the first slice: it scans and analyzes in background
 workers, persists protected manual overrides, performs baseline technical checks, uses
-local face-mesh eye state plus face/eye-focus signals, groups perceptually similar frames, assigns
-automatic Best choices inside groups, and copies Keep/Best selections non-destructively.
+local face-mesh eye state plus face/eye-focus signals, groups and ranks perceptually similar frames,
+keeps Best manual-only, and copies Keep or Best selections through separate non-destructive exports.
 Project and photo context menus, a contextual right-side analysis inspector, and a navigable
 fullscreen culling surface are also implemented. Scanning now stores core EXIF capture and
 camera settings; capture time and visual similarity drive burst groups, and a two-up view

@@ -8,7 +8,7 @@ from typing import Callable, Optional, Tuple
 import cv2
 import numpy as np
 
-from photochoose.identity_recognition import SFaceIdentityEncoder
+from photochoose.identity_recognition import StrongIdentityEncoder
 from photochoose.inference_backend import (
     InferenceBackendError,
     OpenVINOCPUBackend,
@@ -20,6 +20,8 @@ MODEL_DIRECTORY = Path(__file__).with_name("model_assets")
 FACE_MODEL_PATH = MODEL_DIRECTORY / "face_detection_yunet_2023mar.onnx"
 FACE_LANDMARK_MODEL_PATH = MODEL_DIRECTORY / "face_landmarks_detector.tflite"
 MAX_DETECTION_DIMENSION = 1280
+DETAIL_DETECTION_DIMENSION = 2560
+DETAIL_DETECTION_MIN_LONG_EDGE = 1536
 CLOSED_EYE_APERTURE = 0.14
 OPEN_EYE_APERTURE = 0.19
 MIN_VISIBLE_EYE_WIDTH = 6.0
@@ -44,7 +46,7 @@ YUNET_OUTPUT_NAMES = (
     "kps_32",
 )
 YUNET_STRIDES = (8, 16, 32)
-YUNET_SCORE_THRESHOLD = 0.75
+YUNET_SCORE_THRESHOLD = 0.65
 YUNET_NMS_THRESHOLD = 0.3
 YUNET_TOP_K = 5000
 
@@ -328,7 +330,7 @@ class ModelSubjectAnalyzer:
         self,
         face_model_path: Path = FACE_MODEL_PATH,
         eye_analyzer: Optional[FaceLandmarkEyeAnalyzer] = None,
-        identity_encoder: Optional[SFaceIdentityEncoder] = None,
+        identity_encoder: Optional[StrongIdentityEncoder] = None,
         backend: Optional[OpenVINOCPUBackend] = None,
     ) -> None:
         self.face_detector = None
@@ -348,7 +350,7 @@ class ModelSubjectAnalyzer:
         self.eye_analyzer = eye_analyzer or FaceLandmarkEyeAnalyzer(
             backend=backend
         )
-        self.identity_encoder = identity_encoder or SFaceIdentityEncoder()
+        self.identity_encoder = identity_encoder or StrongIdentityEncoder()
 
     def _activate_opencv_face_detector(self, face_model_path: Path) -> bool:
         try:
@@ -356,7 +358,7 @@ class ModelSubjectAnalyzer:
                 str(face_model_path),
                 "",
                 (320, 320),
-                0.75,
+                YUNET_SCORE_THRESHOLD,
                 0.3,
                 5000,
             )
@@ -377,28 +379,24 @@ class ModelSubjectAnalyzer:
         if self.face_detector is None or image.size == 0:
             return None
         detection, scale = self._detection_image(image)
-        height, width = detection.shape[:2]
-        try:
-            self.face_detector.setInputSize((width, height))
-            _status, faces = self.face_detector.detect(detection)
-        except (cv2.error, InferenceBackendError, RuntimeError, ValueError) as exc:
-            if self.face_backend_name == "openvino-cpu":
-                self.fallback_reason = str(exc)
-                self.face_detector = None
-                if not self._activate_opencv_face_detector(self._face_model_path):
-                    self.face_detector = None
+        faces = self._detect_faces(detection)
+        if self.face_detector is None:
+            return None
+        faces = self._faces_in_original_coordinates(faces, scale)
+        if max(image.shape[:2]) >= DETAIL_DETECTION_MIN_LONG_EDGE:
+            detail_image, detail_scale = self._detection_image(
+                image, DETAIL_DETECTION_DIMENSION
+            )
+            if detail_image.shape[:2] != detection.shape[:2]:
+                detail_faces = self._detect_faces(detail_image)
+                if self.face_detector is None:
                     return None
-                try:
-                    self.face_detector.setInputSize((width, height))
-                    _status, faces = self.face_detector.detect(detection)
-                except cv2.error as fallback_exc:
-                    self.error = str(fallback_exc)
-                    self.face_detector = None
-                    return None
-            else:
-                self.error = str(exc)
-                self.face_detector = None
-                return None
+                faces = self._merge_face_detections(
+                    faces,
+                    self._faces_in_original_coordinates(
+                        detail_faces, detail_scale
+                    ),
+                )
         model_name = self._active_model_name()
         if faces is None or len(faces) == 0:
             return SubjectModelResult(
@@ -425,7 +423,7 @@ class ModelSubjectAnalyzer:
         identity_faces = []
         for face_index, face in enumerate(faces):
             raw_x, raw_y, raw_width, raw_height = [
-                int(round(value / scale)) for value in face[:4]
+                int(round(value)) for value in face[:4]
             ]
             x = max(0, raw_x)
             y = max(0, raw_y)
@@ -503,11 +501,9 @@ class ModelSubjectAnalyzer:
                     eyes=tuple(eye_evidence),
                 )
             )
-            aligned_face = np.asarray(face, dtype=np.float32).copy()
-            aligned_face[:14] /= scale
             identity_face = self.identity_encoder.encode(
                 image,
-                aligned_face,
+                face,
                 face_index,
                 normalized_bounds,
                 face_focus,
@@ -588,6 +584,70 @@ class ModelSubjectAnalyzer:
             identity_available=self.identity_encoder.available,
         )
 
+    def _detect_faces(self, detection: np.ndarray) -> Optional[np.ndarray]:
+        height, width = detection.shape[:2]
+        try:
+            self.face_detector.setInputSize((width, height))
+            _status, faces = self.face_detector.detect(detection)
+        except (cv2.error, InferenceBackendError, RuntimeError, ValueError) as exc:
+            if self.face_backend_name == "openvino-cpu":
+                self.fallback_reason = str(exc)
+                self.face_detector = None
+                if not self._activate_opencv_face_detector(self._face_model_path):
+                    self.face_detector = None
+                    return None
+                try:
+                    self.face_detector.setInputSize((width, height))
+                    _status, faces = self.face_detector.detect(detection)
+                except cv2.error as fallback_exc:
+                    self.error = str(fallback_exc)
+                    self.face_detector = None
+                    return None
+            else:
+                self.error = str(exc)
+                self.face_detector = None
+                return None
+        return faces
+
+    @staticmethod
+    def _faces_in_original_coordinates(
+        faces: Optional[np.ndarray], scale: float
+    ) -> Optional[np.ndarray]:
+        if faces is None or len(faces) == 0:
+            return None
+        original = np.asarray(faces, dtype=np.float32).copy()
+        original[:, :14] /= max(scale, 1e-8)
+        return original
+
+    @staticmethod
+    def _merge_face_detections(
+        first: Optional[np.ndarray], second: Optional[np.ndarray]
+    ) -> Optional[np.ndarray]:
+        if first is None or len(first) == 0:
+            return second
+        if second is None or len(second) == 0:
+            return first
+        candidates = np.concatenate((first, second)).astype(np.float32, copy=False)
+        order = np.argsort(-candidates[:, 14], kind="stable")
+        candidates = candidates[order]
+        keep = cv2.dnn.NMSBoxes(
+            [
+                [
+                    int(round(face[0])),
+                    int(round(face[1])),
+                    max(1, int(round(face[2]))),
+                    max(1, int(round(face[3]))),
+                ]
+                for face in candidates
+            ],
+            candidates[:, 14].tolist(),
+            YUNET_SCORE_THRESHOLD,
+            0.35,
+        )
+        if len(keep) == 0:
+            return None
+        return candidates[np.asarray(keep, dtype=np.int32).reshape(-1)]
+
     def _active_model_name(self) -> str:
         face_model_name = (
             "yunet-openvino-cpu"
@@ -601,12 +661,14 @@ class ModelSubjectAnalyzer:
         )
 
     @staticmethod
-    def _detection_image(image: np.ndarray) -> Tuple[np.ndarray, float]:
+    def _detection_image(
+        image: np.ndarray, maximum_dimension: int = MAX_DETECTION_DIMENSION
+    ) -> Tuple[np.ndarray, float]:
         height, width = image.shape[:2]
         longest = max(height, width)
-        if longest <= MAX_DETECTION_DIMENSION:
+        if longest <= maximum_dimension:
             return image, 1.0
-        scale = MAX_DETECTION_DIMENSION / float(longest)
+        scale = maximum_dimension / float(longest)
         resized = cv2.resize(
             image,
             (max(1, round(width * scale)), max(1, round(height * scale))),

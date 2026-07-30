@@ -318,23 +318,14 @@ QToolButton#peopleFilterButton:checked {
     border-bottom-color: #5f8ac5;
 }
 
-QPushButton[kind="menuRow"] {
-    background: transparent;
-    border: none;
-    border-radius: 0;
-    padding: 3px 12px 3px 7px;
-    text-align: left;
+QMenu#peopleMenu::item {
+    min-height: 48px;
+    padding: 5px 18px 5px 10px;
     font-size: 14px;
     font-weight: 600;
 }
 
-QPushButton[kind="menuRow"]:hover { background: #3b557a; }
-
-QMenu#peopleMenu::item {
-    min-height: 32px;
-    padding: 7px 18px;
-    font-size: 13px;
-}
+QMenu#peopleMenu::item:selected { background: #3b557a; }
 
 QMenuBar {
     background: #191a1d;

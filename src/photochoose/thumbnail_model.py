@@ -207,9 +207,10 @@ class PhotoListModel(QAbstractListModel):
         self,
         person_id: Optional[int],
         project_id: Optional[int] = None,
+        view: PhotoView = PhotoView.ALL,
         invalidate_thumbnails: bool = False,
     ) -> None:
-        photos = self.database.list_photos_for_person(person_id, project_id)
+        photos = self.database.list_photos_for_person(person_id, project_id, view)
         self._highlighted_face_indices = (
             self.database.face_indices_for_person(
                 person_id, [photo.id for photo in photos]

@@ -74,15 +74,15 @@ class ImageFormatTests(unittest.TestCase):
 
             database.set_decision([photo.id], Decision.KEEP)
             destination = root / "Export"
-            result = ProjectExporter(database).export_keep_and_best(
+            result = ProjectExporter(database).export_keep(
                 project.id,
                 destination,
             )
 
             self.assertEqual(3, result.copied)
-            self.assertEqual(b"motion companion", (destination / "Keep/IMG_0001.MOV").read_bytes())
-            self.assertTrue((destination / "Keep/IMG_0001.HEIC").is_file())
-            self.assertTrue((destination / "Keep/IMG_0001.AAE").is_file())
+            self.assertEqual(b"motion companion", (destination / "IMG_0001.MOV").read_bytes())
+            self.assertTrue((destination / "IMG_0001.HEIC").is_file())
+            self.assertTrue((destination / "IMG_0001.AAE").is_file())
 
     def test_heic_analysis_completes_with_shared_decoder(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

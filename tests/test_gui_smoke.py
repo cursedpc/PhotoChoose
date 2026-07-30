@@ -317,10 +317,8 @@ class GuiSmokeTests(unittest.TestCase):
             self.assertTrue(all(photo.analysis_status == "complete" for photo in analyzed))
             self.assertEqual("safe", window.current_project.analysis_profile)
             self.assertEqual("Safe", window.analysis_profile_combo.currentText())
-            self.assertEqual(1, window.best_count_spin.value())
-            window.best_count_spin.setValue(2)
-            app.processEvents()
-            self.assertEqual(2, window.current_project.best_count_per_group)
+            self.assertEqual("Export Keep…", window.export_keep_action.text())
+            self.assertEqual("Export Best…", window.export_best_action.text())
 
             balanced_index = window.analysis_profile_combo.findData("balanced")
             window.analysis_profile_combo.setCurrentIndex(balanced_index)
@@ -367,6 +365,10 @@ class GuiSmokeTests(unittest.TestCase):
             )
             self.assertIn(
                 "Toggle Best",
+                [action.text() for action in window._photo_context_menu().actions()],
+            )
+            self.assertIn(
+                "Export selected…",
                 [action.text() for action in window._photo_context_menu().actions()],
             )
             window.inspector.analysis_overlay_button.setChecked(True)
@@ -468,6 +470,10 @@ class GuiSmokeTests(unittest.TestCase):
             self.assertEqual(1, viewer.current_index)
             QTest.keyClick(viewer, Qt.Key_Left)
             self.assertEqual(0, viewer.current_index)
+            # Let the deferred show/resize decode settle before verifying that the
+            # zoom interaction itself only resizes the existing pixmap.
+            QTest.qWait(220)
+            app.processEvents()
             fullscreen_pixmap_key = viewer.image_label.pixmap().cacheKey()
             viewer.zoom_slider.setValue(200)
             app.processEvents()

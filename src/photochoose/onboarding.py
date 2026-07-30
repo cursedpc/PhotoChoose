@@ -8,7 +8,6 @@ from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QSettings, Qt, QTimer
 from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
 
-
 CoachTarget = Optional[Union[QWidget, QRect]]
 
 
@@ -452,8 +451,8 @@ class OnboardingController(QObject):
                 "Filter and reanalyze the shoot",
                 "All, Best, Keep, Review, and Reject change what is visible. Reanalyze "
                 "rescans the folder and applies the selected local analysis profile. "
-                "Settings controls the profile and automatic Best count; the Folder "
-                "menu also provides Rescan and a calibration report.",
+                "Settings controls the profile; the Folder menu also provides Rescan "
+                "and a calibration report. Only you can apply the Best mark.",
                 lambda window: window.current_project is not None
                 and window.photo_model.rowCount() > 0,
                 main_host,
@@ -483,10 +482,10 @@ class OnboardingController(QObject):
             HintStep(
                 "finish",
                 "Export without touching the originals",
-                "File → Export Keep + Best copies your chosen photographs to a new "
-                "destination. File → Close folder removes its cached RAW previews while "
-                "preserving metadata and decisions. Return to Help → Show hints whenever "
-                "you want to replay this guide.",
+                "File → Export Keep and File → Export Best copy those collections "
+                "separately to a destination. File → Close folder removes its cached RAW "
+                "previews while preserving metadata and decisions. Return to Help → Show "
+                "hints whenever you want to replay this guide.",
                 lambda window: bool(window._selected_photo_ids()),
                 main_host,
                 lambda window: menu_action_target(window, "File"),

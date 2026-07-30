@@ -36,7 +36,6 @@ NEAR_DUPLICATE_DISTANCE = 8
 BURST_SIMILARITY_DISTANCE = 20
 BURST_GAP_SECONDS = 2.0
 GROUP_COMPARISON_WINDOW = 12
-MIN_BEST_HASH_DISTANCE = NEAR_DUPLICATE_DISTANCE + 1
 
 
 @dataclass(frozen=True)
@@ -177,7 +176,7 @@ class BaselineAnalyzer:
             if progress is not None:
                 progress(completed, pending_count)
 
-        self._group_and_select_best(project_id, analyzed)
+        self._group_and_rank(project_id, analyzed)
         IdentityMatcher(self.database).assign_unknown_faces()
         return self.database.counts(project_id)
 
@@ -476,7 +475,7 @@ class BaselineAnalyzer:
 
         return len(faces), eye_count, min(focus_scores) if focus_scores else None
 
-    def _group_and_select_best(
+    def _group_and_rank(
         self,
         project_id: int,
         analyzed: List[Tuple[Photo, AnalysisResult]],
@@ -592,14 +591,6 @@ class BaselineAnalyzer:
                             winner.filename,
                             score_gap,
                         )
-
-        project = self.database.get_project(project_id)
-        if project is not None:
-            self.database.select_automatic_best(
-                project_id,
-                project.best_count_per_group,
-                MIN_BEST_HASH_DISTANCE,
-            )
 
     @staticmethod
     def _capture_gap_seconds(left: Photo, right: Photo) -> Optional[float]:

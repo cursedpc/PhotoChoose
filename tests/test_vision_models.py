@@ -6,6 +6,10 @@ import unittest
 import cv2
 import numpy as np
 
+from photochoose.identity_recognition import (
+    OPENVINO_REID_MODEL_PATH,
+    OpenVINOIdentityEncoder,
+)
 from photochoose.vision_models import (
     FACE_LANDMARK_MODEL_PATH,
     FACE_MODEL_PATH,
@@ -36,6 +40,37 @@ class _FakeFaceDetector:
         return 1, self.faces
 
 
+class _ScaleAwareFaceDetector:
+    def __init__(self) -> None:
+        self.input_size = None
+        self.calls = []
+
+    def setInputSize(self, size) -> None:
+        self.input_size = tuple(size)
+
+    def detect(self, _image):
+        self.calls.append(self.input_size)
+        if self.input_size[0] == 1280:
+            faces = np.zeros((1, 15), dtype=np.float32)
+            faces[0, :4] = (100, 100, 100, 100)
+            faces[0, 14] = 0.96
+            return 1, faces
+        faces = np.zeros((2, 15), dtype=np.float32)
+        faces[0, :4] = (188, 188, 188, 188)
+        faces[0, 14] = 0.95
+        faces[1, :4] = (1200, 500, 150, 150)
+        faces[1, 14] = 0.90
+        return 1, faces
+
+
+class _UnavailableIdentityEncoder:
+    available = False
+    error = None
+
+    def encode(self, *_arguments):
+        return None
+
+
 class _FakeEyeAnalyzer:
     available = True
     backend_name = "custom"
@@ -56,6 +91,12 @@ class VisionModelTests(unittest.TestCase):
             FACE_MODEL_PATH: "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
             FACE_LANDMARK_MODEL_PATH: (
                 "c7d54204ce0448474c7f3fa9af494787c0965cbdd6f20fc72867e43046bd43d5"
+            ),
+            OPENVINO_REID_MODEL_PATH: (
+                "ce53d2c9c08c0bd1c1660fb8a5b6d0e3e4ec19eb92f1036d2d83a85e83082dce"
+            ),
+            OPENVINO_REID_MODEL_PATH.with_suffix(".bin"): (
+                "241229ca3d206321868d46ce74a3c0b06c49cea58db7dc70b2e842ff287545d1"
             ),
         }
         for path, digest in expected.items():
@@ -99,6 +140,55 @@ class VisionModelTests(unittest.TestCase):
         self.assertEqual(
             "yunet-openvino-cpu+face-mesh-openvino-cpu", result.model_name
         )
+
+    def test_openvino_identity_encoder_emits_normalized_embedding(self) -> None:
+        encoder = OpenVINOIdentityEncoder()
+        face = np.asarray(
+            [
+                20,
+                20,
+                100,
+                110,
+                52,
+                67,
+                88,
+                67,
+                70,
+                87,
+                55,
+                110,
+                85,
+                110,
+                0.99,
+            ],
+            dtype=np.float32,
+        )
+
+        evidence = encoder.encode(
+            np.full((150, 150, 3), (80, 120, 160), dtype=np.uint8),
+            face,
+            0,
+            (0.13, 0.13, 0.67, 0.73),
+            100.0,
+        )
+
+        self.assertIsNotNone(evidence, encoder.error)
+        self.assertEqual(256, len(evidence.embedding))
+        self.assertAlmostEqual(1.0, np.linalg.norm(evidence.embedding), places=5)
+
+    def test_large_images_use_detail_detection_and_merge_duplicates(self) -> None:
+        detector = _ScaleAwareFaceDetector()
+        analyzer = ModelSubjectAnalyzer(
+            eye_analyzer=_FakeEyeAnalyzer(),
+            identity_encoder=_UnavailableIdentityEncoder(),
+        )
+        analyzer.face_detector = detector
+        analyzer.face_backend_name = "custom"
+
+        result = analyzer.analyze(np.zeros((1600, 2400, 3), dtype=np.uint8))
+
+        self.assertEqual([(1280, 853), (2400, 1600)], detector.calls)
+        self.assertEqual(2, result.face_count)
 
     def test_face_crop_stays_inside_image_bounds(self) -> None:
         image = np.zeros((100, 100, 3), dtype=np.uint8)

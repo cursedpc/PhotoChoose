@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 from PySide6.QtCore import (
     QItemSelectionModel,
@@ -42,7 +42,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSizePolicy,
-    QSpinBox,
     QSplitter,
     QStackedLayout,
     QTabBar,
@@ -191,23 +190,42 @@ class _ExportSignals(QObject):
 
 
 class _ExportTask(QRunnable):
-    def __init__(self, database: PhotoDatabase, project_id: int, destination: Path) -> None:
+    def __init__(
+        self,
+        database: PhotoDatabase,
+        project_id: int,
+        destination: Path,
+        photo_ids: Optional[Sequence[int]] = None,
+        view: Optional[PhotoView] = None,
+    ) -> None:
         super().__init__()
         self.database = database
         self.project_id = project_id
         self.destination = destination
+        self.photo_ids = None if photo_ids is None else tuple(photo_ids)
+        self.view = view
         self.signals = _ExportSignals()
 
     def run(self) -> None:
         exporter = ProjectExporter(self.database)
         try:
-            result = exporter.export_keep_and_best(
-                self.project_id,
-                self.destination,
-                lambda complete, total: self.signals.progress.emit(
-                    self.project_id, complete, total
-                ),
-            )
+            def progress(complete: int, total: int) -> None:
+                self.signals.progress.emit(self.project_id, complete, total)
+
+            if self.photo_ids is not None:
+                result = exporter.export_selected(
+                    self.project_id, self.photo_ids, self.destination, progress
+                )
+            elif self.view == PhotoView.KEEP:
+                result = exporter.export_keep(
+                    self.project_id, self.destination, progress
+                )
+            elif self.view == PhotoView.BEST:
+                result = exporter.export_best(
+                    self.project_id, self.destination, progress
+                )
+            else:
+                raise ValueError("Choose Keep or Best for export")
         except Exception as exc:  # displayed to the user at the UI boundary
             self.signals.failed.emit(self.project_id, str(exc))
             return
@@ -263,8 +281,14 @@ class MainWindow(QMainWindow):
         self.analyze_action.triggered.connect(self._analyze_current_project)
         self.calibration_button = QAction("Calibration report…", self)
         self.calibration_button.triggered.connect(self._open_calibration_report)
-        self.export_button = QAction("Export Keep + Best…", self)
-        self.export_button.triggered.connect(self._choose_export_folder)
+        self.export_keep_action = QAction("Export Keep…", self)
+        self.export_keep_action.triggered.connect(
+            lambda: self._choose_export_folder(PhotoView.KEEP)
+        )
+        self.export_best_action = QAction("Export Best…", self)
+        self.export_best_action.triggered.connect(
+            lambda: self._choose_export_folder(PhotoView.BEST)
+        )
         self.close_project_button = QAction("Close folder", self)
         self.close_project_button.triggered.connect(self._close_current_project)
         self.reset_identity_action = QAction("Reset identity recognition data…", self)
@@ -273,7 +297,8 @@ class MainWindow(QMainWindow):
             self.rescan_button,
             self.analyze_action,
             self.calibration_button,
-            self.export_button,
+            self.export_keep_action,
+            self.export_best_action,
             self.close_project_button,
         ):
             action.setEnabled(False)
@@ -290,7 +315,9 @@ class MainWindow(QMainWindow):
         self.inspector = self._build_selection_inspector()
         self.inspector.personSelected.connect(
             lambda person_id, label: self._person_filter_selected(
-                person_id, None, label
+                person_id,
+                self.current_project.id if self.current_project is not None else None,
+                label,
             )
         )
         splitter.addWidget(self.inspector)
@@ -418,6 +445,9 @@ class MainWindow(QMainWindow):
         self.people_menu.personSelected.connect(self._person_filter_selected)
         self.people_menu.renameRequested.connect(self._rename_person)
         self.people_menu.mergeRequested.connect(self._merge_person)
+        self.people_menu.clearRequested.connect(
+            self._clear_identity_filter_and_refresh
+        )
         self.people_button.setMenu(self.people_menu)
         navigation_layout.addWidget(self.people_button)
         self.workspace_navigation_layout = navigation_layout
@@ -502,20 +532,6 @@ class MainWindow(QMainWindow):
         profile_row.addWidget(self.analysis_profile_combo, 1)
         layout.addLayout(profile_row)
 
-        best_row = QHBoxLayout()
-        best_row.addWidget(QLabel("Best per group"))
-        best_row.addStretch(1)
-        self.best_count_spin = QSpinBox()
-        self.best_count_spin.setRange(1, 5)
-        self.best_count_spin.setValue(1)
-        self.best_count_spin.setToolTip(
-            "Choose up to this many visually distinct automatic Best frames per group"
-        )
-        self.best_count_spin.setEnabled(False)
-        self.best_count_spin.valueChanged.connect(self._best_count_changed)
-        best_row.addWidget(self.best_count_spin)
-        layout.addLayout(best_row)
-
         action = QWidgetAction(self)
         action.setDefaultWidget(settings)
         return action
@@ -552,7 +568,8 @@ class MainWindow(QMainWindow):
         file_menu = self.menuBar().addMenu("File")
         file_menu.addAction(self.add_project_action)
         file_menu.addSeparator()
-        file_menu.addAction(self.export_button)
+        file_menu.addAction(self.export_keep_action)
+        file_menu.addAction(self.export_best_action)
         file_menu.addAction(self.close_project_button)
         file_menu.addSeparator()
         file_menu.addAction(self.reset_identity_action)
@@ -827,11 +844,11 @@ class MainWindow(QMainWindow):
         if project is None:
             return
         self.current_project = project
+        self.people_menu.set_project(project.id, project.name)
         self.project_title.setText(project.name)
         self.project_path.setText(project.root_path)
         self.setWindowTitle("{0} · PhotoChoose".format(project.name))
         self._update_analysis_profile_controls()
-        self._update_best_count_control()
         self._update_project_action_buttons()
         self._refresh_photos()
         if hasattr(self, "onboarding"):
@@ -889,33 +906,6 @@ class MainWindow(QMainWindow):
         self.analysis_profile_status.style().unpolish(self.analysis_profile_status)
         self.analysis_profile_status.style().polish(self.analysis_profile_status)
 
-    @Slot(int)
-    def _best_count_changed(self, count: int) -> None:
-        if self.current_project is None:
-            return
-        if count == self.current_project.best_count_per_group:
-            return
-        automatic_count = self.database.set_project_best_count(
-            self.current_project.id, count
-        )
-        updated = self.database.get_project(self.current_project.id)
-        if updated is None:
-            return
-        self.current_project = updated
-        self._refresh_photos()
-        self.statusBar().showMessage(
-            "Up to {0} diverse Best per group · {1} automatic Best selected from "
-            "stored rankings".format(count, automatic_count),
-            10000,
-        )
-
-    def _update_best_count_control(self) -> None:
-        if self.current_project is None:
-            return
-        self.best_count_spin.blockSignals(True)
-        self.best_count_spin.setValue(self.current_project.best_count_per_group)
-        self.best_count_spin.blockSignals(False)
-
     @Slot(QPoint)
     def _show_project_context_menu(self, position: QPoint) -> None:
         item = self.project_list.itemAt(position)
@@ -933,8 +923,14 @@ class MainWindow(QMainWindow):
         analyze.triggered.connect(self._analyze_current_project)
         calibration = menu.addAction("Calibration report…")
         calibration.triggered.connect(self._open_calibration_report)
-        export = menu.addAction("Export Keep + Best…")
-        export.triggered.connect(self._choose_export_folder)
+        export_keep = menu.addAction("Export Keep…")
+        export_keep.triggered.connect(
+            lambda: self._choose_export_folder(PhotoView.KEEP)
+        )
+        export_best = menu.addAction("Export Best…")
+        export_best.triggered.connect(
+            lambda: self._choose_export_folder(PhotoView.BEST)
+        )
         menu.addSeparator()
         close = menu.addAction("Close folder")
         close.triggered.connect(self._close_current_project)
@@ -942,23 +938,19 @@ class MainWindow(QMainWindow):
             self.current_project is not None
             and self.current_project.id not in self.busy_projects
         )
-        for action in (rescan, analyze, calibration, export, close):
+        for action in (rescan, analyze, calibration, export_keep, export_best, close):
             action.setEnabled(enabled)
         return menu
 
     @Slot(int)
     def _view_changed(self, index: int) -> None:
         if 0 <= index < len(VIEWS):
-            self._clear_identity_filter()
             self.current_view = VIEWS[index]
             self._refresh_photos()
 
     @Slot(int)
     def _view_tab_clicked(self, index: int) -> None:
-        if 0 <= index < len(VIEWS) and self.identity_filter_active:
-            self._clear_identity_filter()
-            self.current_view = VIEWS[index]
-            self._refresh_photos()
+        return
 
     def _select_view(self, index: int) -> None:
         if not 0 <= index < len(VIEWS):
@@ -975,20 +967,23 @@ class MainWindow(QMainWindow):
         project_id: Optional[int],
         label: str,
     ) -> None:
+        if self.current_project is None:
+            return
+        project_id = self.current_project.id
         self.identity_filter_active = True
         self.identity_person_id = person_id
         self.identity_project_id = project_id
         self.identity_label = label
         self.people_button.setChecked(True)
         self.people_button.setText("People  ·  {0}".format(label))
-        folder = self.database.get_project(project_id) if project_id is not None else None
+        self.people_menu.set_active_filter(True)
         self.project_title.setText(
-            "{0} · {1}".format(label, folder.name) if folder is not None else label
+            "{0} · {1}".format(self.current_project.name, label)
         )
-        self.project_path.setText(
-            folder.root_path if folder is not None else "People · all indexed folders"
+        self.project_path.setText(self.current_project.root_path)
+        self.setWindowTitle(
+            "{0} · {1} · PhotoChoose".format(self.current_project.name, label)
         )
-        self.setWindowTitle("{0} · PhotoChoose".format(label))
         self._update_project_action_buttons()
         self._refresh_photos()
 
@@ -1008,22 +1003,41 @@ class MainWindow(QMainWindow):
         if self.identity_filter_active and self.identity_person_id == person_id:
             self.identity_label = display_name
             self.people_button.setText("People  ·  {0}".format(display_name))
-            self.project_title.setText(display_name)
+            if self.current_project is not None:
+                self.project_title.setText(
+                    "{0} · {1}".format(self.current_project.name, display_name)
+                )
+                self.setWindowTitle(
+                    "{0} · {1} · PhotoChoose".format(
+                        self.current_project.name, display_name
+                    )
+                )
         self.people_menu.rebuild()
 
     @Slot(int)
     def _merge_person(self, source_person_id: int) -> None:
-        people = [
-            person
-            for person in self.database.list_people()
-            if person.id != source_person_id
-        ]
+        if self.current_project is None:
+            return
+        people = self._merge_candidates(source_person_id)
         if not people:
             return
-        labels = [
-            "{0}  ·  {1} photos".format(person.display_name, person.photo_count)
-            for person in people
-        ]
+        current_ids = {
+            person.id for person in self.database.list_people(self.current_project.id)
+        }
+        labels = []
+        for person in people:
+            if person.id in current_ids:
+                labels.append(
+                    "{0}  ·  {1} photos in this folder".format(
+                        person.display_name, person.photo_count
+                    )
+                )
+            else:
+                labels.append(
+                    "{0}  ·  {1} photos globally".format(
+                        person.display_name, person.photo_count
+                    )
+                )
         selected, accepted = QInputDialog.getItem(
             self,
             "Merge person",
@@ -1037,11 +1051,33 @@ class MainWindow(QMainWindow):
         target = people[labels.index(selected)]
         self.database.merge_persons(target.id, source_person_id)
         if self.identity_filter_active and self.identity_person_id == source_person_id:
-            self._person_filter_selected(target.id, None, target.display_name)
+            self._person_filter_selected(
+                target.id, self.current_project.id, target.display_name
+            )
         self.people_menu.rebuild()
         self.statusBar().showMessage(
             "People merged into {0}".format(target.display_name), 5000
         )
+
+    def _merge_candidates(self, source_person_id: int):
+        """Return local people plus only user-named identities from other folders."""
+
+        if self.current_project is None:
+            return []
+        local = [
+            person
+            for person in self.database.list_people(self.current_project.id)
+            if person.id != source_person_id
+        ]
+        local_ids = {person.id for person in local}
+        saved_named = [
+            person
+            for person in self.database.list_people()
+            if person.id != source_person_id
+            and person.id not in local_ids
+            and person.is_named
+        ]
+        return local + saved_named
 
     @Slot()
     def _reset_identity_data(self) -> None:
@@ -1090,12 +1126,12 @@ class MainWindow(QMainWindow):
     @Slot(object)
     def _identity_regroup_finished(self, stats) -> None:
         self._identity_regroup_running = False
-        self.people_button.setEnabled(not self._identity_regroup_running)
         self.people_button.setText(
             "People  ·  {0}".format(self.identity_label)
             if self.identity_filter_active
             else "People"
         )
+        self._update_project_action_buttons()
         self.people_menu.rebuild()
         if self.identity_filter_active:
             self._refresh_photos()
@@ -1111,8 +1147,8 @@ class MainWindow(QMainWindow):
     @Slot(str)
     def _identity_regroup_failed(self, message: str) -> None:
         self._identity_regroup_running = False
-        self.people_button.setEnabled(True)
         self.people_button.setText("People")
+        self._update_project_action_buttons()
         self.statusBar().showMessage(
             "People regrouping failed: {0}".format(message), 7000
         )
@@ -1126,11 +1162,19 @@ class MainWindow(QMainWindow):
         self.identity_label = ""
         self.people_button.setChecked(False)
         self.people_button.setText("People")
+        self.people_menu.set_active_filter(False)
         if self.current_project is not None:
             self.project_title.setText(self.current_project.name)
             self.project_path.setText(self.current_project.root_path)
             self.setWindowTitle("{0} · PhotoChoose".format(self.current_project.name))
         self._update_project_action_buttons()
+
+    @Slot()
+    def _clear_identity_filter_and_refresh(self) -> None:
+        if not self.identity_filter_active:
+            return
+        self._clear_identity_filter()
+        self._refresh_photos()
 
     @Slot()
     def _rescan_current_project(self) -> None:
@@ -1445,6 +1489,9 @@ class MainWindow(QMainWindow):
         compare_action.triggered.connect(
             lambda _checked=False, photo=selected_photo: self._open_comparison(photo)
         )
+        export_selected = menu.addAction("Export selected…")
+        export_selected.setEnabled(bool(self._selected_photo_ids()))
+        export_selected.triggered.connect(self._choose_selected_export_folder)
         if (
             selected_photo is not None
             and self.identity_filter_active
@@ -1547,26 +1594,66 @@ class MainWindow(QMainWindow):
         if self.current_project is not None:
             self._refresh_photos()
 
-    @Slot()
-    def _choose_export_folder(self) -> None:
+    def _choose_export_folder(self, view: PhotoView) -> None:
         if self.current_project is None:
             return
         project = self.current_project
         exporter = ProjectExporter(self.database)
-        if exporter.export_count(project.id) == 0:
+        if exporter.export_count(project.id, view) == 0:
+            label = "Keep" if view == PhotoView.KEEP else "Best"
             QMessageBox.information(
                 self,
                 "Nothing to export",
-                "This folder has no Keep or Best photographs yet.",
+                "This folder has no {0} photographs yet.".format(label),
             )
             return
-        folder = QFileDialog.getExistingDirectory(self, "Choose export destination")
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Choose destination for {0} photographs".format(view.value.title()),
+        )
         if not folder:
             return
         self.busy_projects.add(project.id)
         self._update_project_action_buttons()
         self.statusBar().showMessage("Preparing export…")
-        task = _ExportTask(self.database, project.id, Path(folder))
+        task = _ExportTask(
+            self.database,
+            project.id,
+            Path(folder),
+            view=view,
+        )
+        task.signals.progress.connect(self._export_progress)
+        task.signals.finished.connect(self._export_finished)
+        task.signals.failed.connect(self._export_failed)
+        self.thread_pool.start(task)
+
+    @Slot()
+    def _choose_selected_export_folder(self) -> None:
+        if self.current_project is None:
+            return
+        photo_ids = self._selected_photo_ids()
+        if not photo_ids:
+            return
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Choose destination for selected photographs",
+        )
+        if not folder:
+            return
+        project = self.current_project
+        self.busy_projects.add(project.id)
+        self._update_project_action_buttons()
+        self.statusBar().showMessage(
+            "Preparing {0} selected photograph{1}…".format(
+                len(photo_ids), "" if len(photo_ids) == 1 else "s"
+            )
+        )
+        task = _ExportTask(
+            self.database,
+            project.id,
+            Path(folder),
+            photo_ids,
+        )
         task.signals.progress.connect(self._export_progress)
         task.signals.finished.connect(self._export_finished)
         task.signals.failed.connect(self._export_failed)
@@ -1616,17 +1703,17 @@ class MainWindow(QMainWindow):
         self.analyze_button.setEnabled(enabled)
         self.analyze_action.setEnabled(enabled)
         self.calibration_button.setEnabled(enabled)
-        self.export_button.setEnabled(enabled)
+        self.export_keep_action.setEnabled(enabled)
+        self.export_best_action.setEnabled(enabled)
         self.close_project_button.setEnabled(enabled)
         self.project_options_button.setEnabled(enabled)
         self.analysis_profile_combo.setEnabled(enabled)
-        self.best_count_spin.setEnabled(enabled)
         for action in self.photo_menu_actions:
             action.setEnabled(has_photo_context)
         for action in self.view_menu_actions:
             action.setEnabled(has_folder)
         self.view_tabs.setEnabled(has_folder)
-        self.people_button.setEnabled(not self._identity_regroup_running)
+        self.people_button.setEnabled(has_folder and not self._identity_regroup_running)
         self.photo_grid.setEnabled(has_photo_context)
         self.inspector.toggle_button.setEnabled(has_photo_context)
         self.close_folder_shortcut.setEnabled(enabled)
@@ -1636,14 +1723,11 @@ class MainWindow(QMainWindow):
     def _clear_current_project(self) -> None:
         self._clear_identity_filter()
         self.current_project = None
+        self.people_menu.set_project(None)
         self.project_title.setText("No folder selected")
         self.project_path.setText("Select a folder from the library")
         self.setWindowTitle("PhotoChoose")
         self.analysis_profile_combo.setEnabled(False)
-        self.best_count_spin.blockSignals(True)
-        self.best_count_spin.setValue(1)
-        self.best_count_spin.blockSignals(False)
-        self.best_count_spin.setEnabled(False)
         self.analysis_profile_status.setText("Safe profile · ready")
         self.analysis_profile_status.setObjectName("mutedLabel")
         self.photo_model.clear()
@@ -1662,7 +1746,8 @@ class MainWindow(QMainWindow):
         self.analyze_button.setEnabled(False)
         self.analyze_action.setEnabled(False)
         self.calibration_button.setEnabled(False)
-        self.export_button.setEnabled(False)
+        self.export_keep_action.setEnabled(False)
+        self.export_best_action.setEnabled(False)
         self.close_project_button.setEnabled(False)
         self.project_options_button.setEnabled(False)
         self._update_project_action_buttons()
@@ -1720,6 +1805,7 @@ class MainWindow(QMainWindow):
             self.photo_model.refresh_person(
                 self.identity_person_id,
                 self.identity_project_id,
+                self.current_view,
                 invalidate_thumbnails=invalidate_thumbnails,
             )
         else:
@@ -1830,7 +1916,13 @@ class MainWindow(QMainWindow):
 
     def _update_counts(self) -> None:
         if self.current_project is not None:
-            counts = self.database.counts(self.current_project.id)
+            counts = (
+                self.database.identity_counts(
+                    self.identity_person_id, self.current_project.id
+                )
+                if self.identity_filter_active
+                else self.database.counts(self.current_project.id)
+            )
             for index, view in enumerate(VIEWS):
                 label = "{0}  {1}".format(view.value.title(), counts[view.value])
                 self.view_tabs.setTabText(index, label)

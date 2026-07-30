@@ -17,6 +17,7 @@ class ProjectExporterTests(unittest.TestCase):
         (self.shoot / "Camera A").mkdir(parents=True)
         (self.shoot / "Camera A" / "keep.jpg").write_bytes(b"keep bytes")
         (self.shoot / "best.jpg").write_bytes(b"best bytes")
+        (self.shoot / "other.jpg").write_bytes(b"other bytes")
         self.database = PhotoDatabase(self.root / "photochoose.sqlite3")
         self.project = self.database.add_project(self.shoot)
         self.database.scan_project(self.project.id)
@@ -24,7 +25,7 @@ class ProjectExporterTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
 
-    def test_export_copies_categories_and_preserves_relative_paths(self) -> None:
+    def test_keep_and_best_exports_are_separate_and_preserve_paths(self) -> None:
         photos = {
             photo.filename: photo
             for photo in self.database.list_photos(self.project.id, PhotoView.ALL)
@@ -33,38 +34,75 @@ class ProjectExporterTests(unittest.TestCase):
         best = photos["best.jpg"]
         self.database.set_decision([keep.id], Decision.KEEP)
         self.database.toggle_best([keep.id, best.id])
-        destination = self.root / "Export"
-        progress = []
+        keep_destination = self.root / "Keep Export"
+        best_destination = self.root / "Best Export"
+        keep_progress = []
+        best_progress = []
 
-        result = ProjectExporter(self.database).export_keep_and_best(
+        keep_result = ProjectExporter(self.database).export_keep(
             self.project.id,
-            destination,
-            lambda complete, total: progress.append((complete, total)),
+            keep_destination,
+            lambda complete, total: keep_progress.append((complete, total)),
+        )
+        best_result = ProjectExporter(self.database).export_best(
+            self.project.id,
+            best_destination,
+            lambda complete, total: best_progress.append((complete, total)),
         )
 
-        self.assertEqual(3, result.copied)
-        self.assertEqual(0, result.skipped)
-        self.assertEqual((3, 3), progress[-1])
+        self.assertEqual(1, keep_result.copied)
+        self.assertEqual(2, best_result.copied)
+        self.assertEqual((1, 1), keep_progress[-1])
+        self.assertEqual((2, 2), best_progress[-1])
         self.assertEqual(
-            b"keep bytes", (destination / "Keep" / "Camera A" / "keep.jpg").read_bytes()
+            b"keep bytes", (keep_destination / "Camera A" / "keep.jpg").read_bytes()
         )
         self.assertEqual(
-            b"keep bytes", (destination / "Best" / "Camera A" / "keep.jpg").read_bytes()
+            b"keep bytes", (best_destination / "Camera A" / "keep.jpg").read_bytes()
         )
-        self.assertEqual(b"best bytes", (destination / "Best" / "best.jpg").read_bytes())
+        self.assertEqual(b"best bytes", (best_destination / "best.jpg").read_bytes())
+        self.assertFalse((keep_destination / "best.jpg").exists())
 
-        existing = destination / "Best" / "best.jpg"
+        existing = best_destination / "best.jpg"
         existing.write_bytes(b"do not overwrite")
-        second = ProjectExporter(self.database).export_keep_and_best(self.project.id, destination)
+        second = ProjectExporter(self.database).export_best(
+            self.project.id, best_destination
+        )
         self.assertEqual(0, second.copied)
-        self.assertEqual(3, second.skipped)
+        self.assertEqual(2, second.skipped)
         self.assertEqual(b"do not overwrite", existing.read_bytes())
 
     def test_export_rejects_destination_inside_source(self) -> None:
         with self.assertRaisesRegex(ValueError, "outside the source"):
-            ProjectExporter(self.database).export_keep_and_best(
+            ProjectExporter(self.database).export_keep(
                 self.project.id, self.shoot / "Export"
             )
+
+    def test_export_selected_ignores_decisions_and_preserves_paths(self) -> None:
+        photos = {
+            photo.filename: photo
+            for photo in self.database.list_photos(self.project.id, PhotoView.ALL)
+        }
+        selected = (photos["keep.jpg"], photos["best.jpg"])
+        self.database.set_decision([selected[1].id], Decision.REJECT)
+        destination = self.root / "Selected"
+        progress = []
+
+        result = ProjectExporter(self.database).export_selected(
+            self.project.id,
+            [photo.id for photo in selected],
+            destination,
+            lambda complete, total: progress.append((complete, total)),
+        )
+
+        self.assertEqual(2, result.copied)
+        self.assertEqual((2, 2), progress[-1])
+        self.assertEqual(
+            b"keep bytes", (destination / "Camera A" / "keep.jpg").read_bytes()
+        )
+        self.assertEqual(b"best bytes", (destination / "best.jpg").read_bytes())
+        self.assertFalse((destination / "other.jpg").exists())
+        self.assertFalse((destination / "Keep").exists())
 
 
 if __name__ == "__main__":

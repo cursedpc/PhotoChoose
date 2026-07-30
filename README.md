@@ -15,12 +15,16 @@ PhotoChoose is a private, local-first desktop application for professional photo
   primary-subject result for conservative burst ranking.
 - Treat faces smaller than one quarter of the largest detected face as background evidence
   for ranking purposes, while still showing and counting them.
-- Create local SFace identity embeddings for usable detected faces and automatically group likely
-  instances of the same person across every indexed folder. Open **People** beside the normal
-  filters to browse unnamed people, named people, and Unknown faces; click a person for all of
-  their photographs or hover for the folders containing that person.
+- Create local OpenVINO face re-identification embeddings for usable detected faces and
+  automatically group likely instances of the same person across every indexed folder. Open
+  **People** beside the normal
+  filters to browse people and Unknown faces from the folder currently open in the workspace.
+  Clicking a person filters that folder directly; closed-folder photographs stay out of view while
+  their identity evidence remains available locally for future recognition.
 - Name automatically discovered people, merge duplicate identity groups, or use **Not [person]**
   on an incorrect match. Explicit exclusions survive rescanning and future automatic grouping.
+- Right-click any selected photograph or multi-selection and choose **Export selected…** to copy
+  exactly those originals and companion assets, regardless of decision or similarity group.
 - Detect people and common animals, vehicles, furnishings, food, electronics, and other
   COCO objects with a bundled NanoDet model, then classify their importance as primary,
   supporting, or background.
@@ -29,7 +33,8 @@ PhotoChoose is a private, local-first desktop application for professional photo
 - Read EXIF capture time, camera/lens identity, ISO, shutter, aperture, and focal length.
 - Group bursts using capture timing, camera identity, and perceptual similarity, with a
   conservative visual fallback when EXIF is unavailable.
-- Mark the strongest usable photograph in each similar group as Best.
+- Rank photographs inside similar groups without assigning Best automatically; only the user can
+  apply or remove the Best mark.
 - Promote a questionable grouped frame to Reject only when another frame from the same
   moment ranks at least 25 points higher; unique photos and manual decisions stay protected.
 - Populate conservative `Keep`, `Review`, and `Reject` recommendations with visible reasons.
@@ -59,7 +64,7 @@ PhotoChoose is a private, local-first desktop application for professional photo
   trackpad gesture; press `Esc` to close it. The filmstrip loads thumbnails lazily, keeps the
   current photo centered, and shows its exact position in the visible sequence.
 - Mark selected photographs using the inspector, context menus, or keyboard shortcuts.
-- Export kept and best photographs to a user-selected destination.
+- Export Keep and Best as two separate collections to user-selected destinations.
 - Resume with the same projects and decisions after restarting.
 - Rescan a project without losing decisions for files that still exist.
 - Monitor every open folder for settled additions, replacements, renames, and removals;
@@ -74,7 +79,9 @@ PhotoChoose is a private, local-first desktop application for professional photo
 - Extract sufficiently large embedded JPEG previews from RAW-only files into the local
   application cache. RAW files without a usable preview remain safely in Review.
 
-`Best` is an independent flag. A photograph can be both `Keep` and `Best`, while `Keep`, `Review`, and `Reject` are mutually exclusive decisions.
+`Best` is an independent, manual-only flag. A photograph can be both `Keep` and `Best`, while
+`Keep`, `Review`, and `Reject` are mutually exclusive decisions. Analysis can rank photographs but
+never applies or removes Best.
 
 Manual decisions are protected: after you explicitly classify a photograph, subsequent analysis runs update its metrics and reasons but do not overwrite your choice.
 
@@ -91,12 +98,6 @@ Suggestions require repeated matching corrections and remain informational: Phot
 not modify thresholds automatically. Small local tests validate the report machinery, while
 meaningful threshold tuning and performance validation require representative large shoots on
 the target machine.
-
-**Settings** also sets **Best per group** from 1–5. PhotoChoose reuses stored group rankings,
-so changing this value does not rerun image analysis. Automatic selections favor the highest
-scores while skipping near-identical perceptual hashes; the limit is therefore a maximum, not
-a promise to fill a group with redundant frames. Explicit manual Best choices are always
-preserved and count toward the selected maximum.
 
 The analysis intentionally sends uncertain soft images, confidently detected closed eyes,
 uncertain or obscured/unresolved eye states, and very soft primary detected objects to `Review`;
@@ -145,7 +146,8 @@ that actually produced each result.
   through OpenVINO CPU.
 - General objects: OpenCV Zoo NanoDet, Apache-2.0 licensed, executed locally through
   OpenVINO CPU with a model-free saliency fallback.
-- Identity embeddings: OpenCV Zoo SFace, Apache-2.0 licensed, executed locally through OpenCV CPU.
+- Identity embeddings: OpenVINO Open Model Zoo face-reidentification-retail-0095,
+  Apache-2.0 licensed, executed locally through OpenVINO CPU. SFace remains the recovery backend.
 - Exact upstream locations, licenses, filenames, and SHA-256 hashes are recorded in
   `src/photochoose/model_assets/MODELS.md`.
 
@@ -158,9 +160,28 @@ Face embeddings are biometric identifiers even though they are not photographs. 
 them only in its local SQLite catalog, never uploads them, and never includes them in photograph
 exports. Automatic identity assignment deliberately favors precision: difficult or ambiguous faces
 remain under **Unknown** instead of being forced into a named person. A new unnamed person requires
-consistent face evidence from at least three different photographs; isolated faces and pairs stay
-Unknown until more matching photographs are indexed. Existing named people can accept later strong
-single-face matches because the user-confirmed identity already exists.
+consistent face evidence from at least three different photographs, and every seed face must have
+two very strong peers. Isolated faces, lookalikes without strong peer evidence, and pairs stay Unknown
+until more matching photographs are indexed. Existing named people can accept later exceptionally
+strong single-face matches because the user-confirmed identity already exists.
+
+Those reliable seed groups are then merged hierarchically using aggregate identity similarity, while
+faces found together in one photograph are treated as different people. When one person demonstrably
+recurs through a folder, PhotoChoose uses that folder-level evidence to recover moderate matches that
+would be too ambiguous as isolated faces. This avoids turning pose, lighting, and hairstyle changes
+into many separate people without weakening the initial identity seeds.
+
+The manual **Merge into** list includes every other identity in the open folder. It also includes
+user-named identities stored for other folders, but hides unnamed groups from other folders so old
+automatic fragments do not clutter the selector. A merge updates the persistent identity globally.
+People and decision filters can be combined: after selecting a person, **All**, **Best**, **Keep**,
+**Review**, and **Reject** show only that person's matching photographs. **Clear person filter** in
+the People menu restores the normal folder view while preserving the selected decision tab.
+
+Face detection uses a moderate YuNet confidence floor and a second high-resolution pass on large
+photographs so smaller faces remain available to identity recognition. Overlapping detections are
+merged before analysis. Low-confidence detections cannot establish a person by themselves: they
+must still pass the multi-photo seed or recurring-person safeguards above.
 
 HEIC/HEIF decoding uses `pi-heif` 1.4.0 and its bundled LGPL-3.0-or-later libheif/libde265
 components. The packaged Python distribution metadata includes `LICENSE.txt` and
@@ -168,7 +189,11 @@ components. The packaged Python distribution metadata includes `LICENSE.txt` and
 
 ## Export behavior
 
-**Export Keep + Best…** creates `Keep` and `Best` folders inside the destination you choose and preserves the shoot's relative subfolder structure. A photograph marked both Keep and Best is copied into both collections. Existing destination files are skipped rather than overwritten, and the source shoot folder is never modified. PhotoChoose refuses to export inside the source shoot because a later rescan would otherwise import the copies again.
+**Export Keep…** and **Export Best…** are separate actions. Each copies only that collection into
+the destination you choose while preserving the shoot's relative subfolder structure. Existing
+destination files are skipped rather than overwritten, and the source shoot folder is never
+modified. PhotoChoose refuses to export inside the source shoot because a later rescan would
+otherwise import the copies again.
 
 Closing a project is also non-destructive. It clears only regenerable RAW preview files to
 release disk space. Adding the same source folder again reopens its existing database record

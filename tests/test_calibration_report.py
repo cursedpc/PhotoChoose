@@ -56,13 +56,12 @@ class CalibrationReportTests(unittest.TestCase):
             )
             self.database.set_decision([photo.id], Decision.KEEP)
 
-        self.database.set_automatic_best(photos[0].id)
         self.database.toggle_best([photos[0].id])
         report = build_calibration_report(self.database, project.id)
 
         self.assertEqual(MIN_SUGGESTION_SAMPLES + 1, report.total_actions)
         self.assertEqual(MIN_SUGGESTION_SAMPLES, report.decision_disagreements)
-        self.assertEqual(1, report.best_corrections)
+        self.assertEqual(0, report.best_corrections)
         self.assertEqual((("Review → Keep", MIN_SUGGESTION_SAMPLES),), report.directions)
         self.assertEqual("safe", report.profiles[0].profile)
         self.assertEqual(MIN_SUGGESTION_SAMPLES, report.profiles[0].rescued_to_keep)
@@ -76,7 +75,6 @@ class CalibrationReportTests(unittest.TestCase):
         self.assertIn("Safe / {0}".format(ANALYSIS_VERSION), text)
         self.assertIn("global focus", text)
         self.assertIn("soft-", text)
-        self.assertIn("max/group 1", text)
 
 
 if __name__ == "__main__":
