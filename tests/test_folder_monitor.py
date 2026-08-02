@@ -12,8 +12,7 @@ from PySide6.QtTest import QTest  # noqa: E402
 
 from photochoose.app import create_application  # noqa: E402
 from photochoose.folder_monitor import FolderMonitor, snapshot_folder  # noqa: E402
-from photochoose.models import Project  # noqa: E402
-from photochoose.models import PhotoView  # noqa: E402
+from photochoose.models import PhotoView, Project  # noqa: E402
 
 
 class FolderMonitorTests(unittest.TestCase):

@@ -1,6 +1,6 @@
 # PhotoChoose
 
-PhotoChoose is a private, local-first desktop application for reviewing large photo shoots.
+PhotoChoose is a privacy-focused, local-first desktop application for reviewing large photo shoots.
 It helps you find strong frames, compare similar photographs, organize people, and export your
 selection without modifying the originals.
 
