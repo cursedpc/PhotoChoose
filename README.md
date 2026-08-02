@@ -176,8 +176,6 @@ updated.
 
 ## License
 
-Copyright © 2026 cursedpc and contributors.
-
 Except where another license is identified, PhotoChoose's original source code, documentation,
 branding, and project-owned test assets are licensed under
 [GNU GPL version 3 only](LICENSE). Distributed modifications must remain available under the same
