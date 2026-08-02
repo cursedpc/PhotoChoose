@@ -92,6 +92,18 @@ jobs:
       - name: Install Inno Setup
         run: choco install innosetup --version=6.7.1 --no-progress -y
 
+      - name: Build legacy-layout migration fixture
+        shell: pwsh
+        run: |
+          $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) {
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          & $iscc "packaging\windows\photochoose-legacy-test.iss"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Legacy-layout test fixture failed with exit code $LASTEXITCODE"
+          }
+
       - name: Build installer
         shell: pwsh
         run: |
@@ -105,18 +117,10 @@ jobs:
           }
 
       - name: Verify install, in-place upgrade, and uninstaller
-        env:
-          GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
           $installer = Get-Item "release\PhotoChoose-Setup-$env:APP_VERSION-x64.exe"
-          $legacyInstallerDir = Join-Path $env:RUNNER_TEMP "legacy-installer"
-          New-Item -ItemType Directory -Force -Path $legacyInstallerDir | Out-Null
-          gh release download v0.1.2 --repo $env:GITHUB_REPOSITORY --pattern "PhotoChoose-Setup-0.1.2-x64.exe" --dir $legacyInstallerDir
-          if ($LASTEXITCODE -ne 0) {
-            throw "Could not download the legacy installer for the migration test"
-          }
-          $legacyInstaller = Get-Item "$legacyInstallerDir\PhotoChoose-Setup-0.1.2-x64.exe"
+          $legacyInstaller = Get-Item "release\PhotoChoose-Legacy-Layout-Test.exe"
           $legacyInstallDir = Join-Path $env:LOCALAPPDATA "Programs\PhotoChoose"
           $legacyInstall = Start-Process $legacyInstaller.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
           if ($legacyInstall.ExitCode -ne 0 -or -not (Test-Path "$legacyInstallDir\PhotoChoose.exe")) {
