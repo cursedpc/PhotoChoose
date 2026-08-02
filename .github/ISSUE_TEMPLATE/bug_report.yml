@@ -1,0 +1,68 @@
+name: Bug report
+description: Report a reproducible problem in PhotoChoose
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping improve PhotoChoose. Do not upload private photographs or catalog data. If a sample image is essential, use one you have permission to share.
+  - type: input
+    id: version
+    attributes:
+      label: PhotoChoose version
+      description: The version shown in the release or application.
+      placeholder: 0.1.7
+    validations:
+      required: true
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating system
+      options:
+        - Windows x64
+        - macOS Intel
+        - macOS Apple Silicon
+        - Running from source
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: system-version
+    attributes:
+      label: System version
+      placeholder: Windows 11 24H2 or macOS 15.6
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Explain what you saw and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a folder...
+        2. Select a photo...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Additional details
+      description: Add relevant logs, screenshots, image formats, or approximate folder size. Remove personal information first.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked existing issues for the same problem.
+          required: true
+        - label: I removed private photos, paths, and personal information from anything attached.
+          required: true
