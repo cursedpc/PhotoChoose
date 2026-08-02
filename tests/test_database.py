@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from photochoose.analysis_profiles import ANALYSIS_VERSION
@@ -116,7 +117,7 @@ class PhotoDatabaseTests(unittest.TestCase):
         self.database.scan_project(project.id)
         photos = self.database.list_photos(project.id, PhotoView.ALL)
         self.database.toggle_best([photos[1].id])
-        with self.database._connect() as connection:
+        with closing(self.database._connect()) as connection:
             connection.execute(
                 "UPDATE photos SET is_best = 1, best_source = 'automatic' WHERE id = ?",
                 (photos[0].id,),
