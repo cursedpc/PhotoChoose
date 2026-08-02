@@ -4,7 +4,7 @@ PhotoChoose is a private, local-first desktop application for reviewing large ph
 It helps you find strong frames, compare similar photographs, organize people, and export your
 selection without modifying the originals.
 
-[Download the latest release](https://github.com/cursedpc/easyphoto/releases/latest)
+[Download the latest release](https://github.com/cursedpc/PhotoChoose/releases/latest)
 
 ## What PhotoChoose does
 
@@ -27,7 +27,7 @@ uploaded.
 ### Windows
 
 Download the Windows x64 setup file from
-[Releases](https://github.com/cursedpc/easyphoto/releases/latest) and run it. A newer setup file
+[Releases](https://github.com/cursedpc/PhotoChoose/releases/latest) and run it. A newer setup file
 upgrades the existing installation while preserving the local catalog and settings.
 
 ### macOS
