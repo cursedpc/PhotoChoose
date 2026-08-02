@@ -2,6 +2,7 @@
 
 import platform
 import tomllib
+from importlib.metadata import distribution
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all, copy_metadata
@@ -19,6 +20,16 @@ if target_arch not in ("arm64", "x86_64"):
 
 datas = [
     (str(icon_path), "photochoose/branding"),
+    (str(project_root / "LICENSE"), "."),
+    (str(project_root / "THIRD_PARTY_NOTICES.md"), "."),
+    (
+        str(project_root / "packaging" / "licenses" / "PYTHON_LICENSE.txt"),
+        "licenses/Python",
+    ),
+    (
+        str(project_root / "packaging" / "licenses" / "PYINSTALLER_COPYING.txt"),
+        "licenses/PyInstaller",
+    ),
 ]
 datas.extend(
     (str(path), "photochoose/model_assets")
@@ -34,9 +45,34 @@ for package in ("openvino", "ai_edge_litert", "pi_heif"):
     binaries.extend(package_binaries)
     hiddenimports.extend(package_hiddenimports)
 
-datas.extend(copy_metadata("openvino"))
-datas.extend(copy_metadata("ai-edge-litert"))
-datas.extend(copy_metadata("pi-heif"))
+license_distributions = (
+    "PySide6",
+    "PySide6_Essentials",
+    "PySide6_Addons",
+    "shiboken6",
+    "numpy",
+    "opencv-python-headless",
+    "Pillow",
+    "pi-heif",
+    "ai-edge-litert",
+    "openvino",
+    "openvino-telemetry",
+    "packaging",
+)
+for distribution_name in license_distributions:
+    datas.extend(copy_metadata(distribution_name))
+    package_distribution = distribution(distribution_name)
+    notice_directory = "licenses/python-packages/{0}".format(
+        package_distribution.metadata["Name"] or distribution_name
+    )
+    for relative_path in package_distribution.files or ():
+        if not Path(str(relative_path)).name.lower().startswith(
+            ("license", "copying", "notice")
+        ):
+            continue
+        license_path = Path(package_distribution.locate_file(relative_path))
+        if license_path.is_file():
+            datas.append((str(license_path), notice_directory))
 
 analysis = Analysis(
     [str(package_root / "__main__.py")],

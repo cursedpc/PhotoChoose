@@ -20,6 +20,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import (
     QAction,
+    QDesktopServices,
     QDragEnterEvent,
     QDragLeaveEvent,
     QDragMoveEvent,
@@ -51,6 +52,7 @@ from PySide6.QtWidgets import (
     QWidgetAction,
 )
 
+from photochoose import __version__
 from photochoose.analysis_profiles import ANALYSIS_PROFILES, ANALYSIS_VERSION
 from photochoose.analyzer import BaselineAnalyzer
 from photochoose.calibration_dialog import CalibrationReportDialog
@@ -79,6 +81,8 @@ VIEWS = [
     PhotoView.REVIEW,
     PhotoView.REJECT,
 ]
+
+SUPPORT_URL = "https://ko-fi.com/cursedpc"
 
 
 def _progress_message(label: str, complete: int, total: int, elapsed: float) -> str:
@@ -617,10 +621,36 @@ class MainWindow(QMainWindow):
         self.help_menu = self.menuBar().addMenu("Help")
         self.show_hints_action = self.help_menu.addAction("Show hints")
         self.show_hints_action.triggered.connect(self._show_hints)
+        self.support_action = self.help_menu.addAction("Support PhotoChoose")
+        self.support_action.triggered.connect(self._open_support_page)
+        self.help_menu.addSeparator()
+        self.about_action = self.help_menu.addAction("About PhotoChoose")
+        self.about_action.triggered.connect(self._show_about)
 
     @Slot()
     def _show_hints(self) -> None:
         self.onboarding.restart()
+
+    @Slot()
+    def _open_support_page(self) -> None:
+        QDesktopServices.openUrl(QUrl(SUPPORT_URL))
+
+    @Slot()
+    def _show_about(self) -> None:
+        QMessageBox.about(
+            self,
+            "About PhotoChoose",
+            (
+                "<h3>PhotoChoose {0}</h3>"
+                "<p>Private, local-first photo culling.</p>"
+                "<p>Copyright © 2026 cursedpc and contributors.</p>"
+                "<p>Original PhotoChoose work is licensed under the "
+                "GNU General Public License version 3 only.</p>"
+                "<p>Bundled libraries and inference models retain their own licenses. "
+                "See <b>THIRD_PARTY_NOTICES.md</b> in the application distribution "
+                "for details.</p>"
+            ).format(__version__),
+        )
 
     def _install_shortcuts(self) -> None:
         shortcuts = [

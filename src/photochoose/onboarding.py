@@ -482,10 +482,12 @@ class OnboardingController(QObject):
             HintStep(
                 "finish",
                 "Export without touching the originals",
-                "File → Export Keep and File → Export Best copy those collections "
-                "separately to a destination. File → Close folder removes its cached RAW "
-                "previews while preserving metadata and decisions. Return to Help → Show "
-                "hints whenever you want to replay this guide.",
+                "File → Export Keep… or Export Best… copies that collection directly "
+                "into the destination you choose, without an extra Keep or Best folder. "
+                "To export only certain photos, select them, right-click a thumbnail, and "
+                "choose Export selected…. Originals are never changed. File → Close folder "
+                "clears cached RAW previews but keeps metadata and decisions. Replay the "
+                "guide from Help → Show hints.",
                 lambda window: bool(window._selected_photo_ids()),
                 main_host,
                 lambda window: menu_action_target(window, "File"),

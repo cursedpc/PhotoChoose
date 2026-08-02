@@ -1,5 +1,9 @@
 # Windows packaging
 
+The build embeds PhotoChoose's GPL license, third-party notices, and the license files supplied by
+packaged Python distributions. The Inno Setup wizard displays the PhotoChoose license before
+installation, and the portable ZIP keeps the main notices beside the executable.
+
 PhotoChoose is built as an x64 PyInstaller one-folder application and wrapped in an Inno Setup
 installer. Build on 64-bit Windows with Python 3.11; PyInstaller bundles are specific to the
 operating system that creates them.

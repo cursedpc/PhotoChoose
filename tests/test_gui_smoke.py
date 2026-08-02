@@ -253,6 +253,10 @@ class GuiSmokeTests(unittest.TestCase):
                 [action.text() for action in window.menuBar().actions()],
             )
             self.assertEqual("Show hints", window.show_hints_action.text())
+            self.assertEqual("Support PhotoChoose", window.support_action.text())
+            with patch("photochoose.main_window.QDesktopServices.openUrl") as open_url:
+                window.support_action.trigger()
+                open_url.assert_called_once_with(QUrl("https://ko-fi.com/cursedpc"))
             self.assertTrue(window.folder_menu.menuAction().isEnabled())
             self.assertTrue(window.photo_menu.menuAction().isEnabled())
             self.assertTrue(window.view_menu.menuAction().isEnabled())

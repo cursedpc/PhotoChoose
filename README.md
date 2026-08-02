@@ -167,3 +167,22 @@ QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests
 Platform packaging instructions are available in
 [packaging/windows/README.md](packaging/windows/README.md) and
 [packaging/macos/README.md](packaging/macos/README.md).
+
+## Support PhotoChoose
+
+If PhotoChoose is useful to you, you can support its continued development on
+[Ko-fi](https://ko-fi.com/cursedpc). Your support helps create new projects and keep existing ones
+updated.
+
+## License
+
+Copyright © 2026 cursedpc and contributors.
+
+Except where another license is identified, PhotoChoose's original source code, documentation,
+branding, and project-owned test assets are licensed under
+[GNU GPL version 3 only](LICENSE). Distributed modifications must remain available under the same
+license.
+
+Bundled libraries and inference models retain their own licenses. Their provenance and terms are
+listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); model-specific license texts are kept
+beside the model files.

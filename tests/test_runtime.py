@@ -46,6 +46,9 @@ class RuntimeTests(unittest.TestCase):
         release_workflow = (
             project_root / ".github/workflows/windows-installer.yml"
         ).read_text(encoding="utf-8")
+        windows_spec = (
+            project_root / "packaging/windows/photochoose.spec"
+        ).read_text(encoding="utf-8")
 
         self.assertEqual(project_version, __version__)
         self.assertIn('#define AppVersion "{0}"'.format(project_version), installer)
@@ -75,6 +78,12 @@ class RuntimeTests(unittest.TestCase):
             metadata["project"]["dependencies"],
         )
         self.assertIn("version=project_version", mac_spec)
+        for specification in (windows_spec, mac_spec):
+            self.assertIn('project_root / "LICENSE"', specification)
+            self.assertIn('project_root / "THIRD_PARTY_NOTICES.md"', specification)
+            self.assertIn('"PySide6"', specification)
+            self.assertIn('"opencv-python-headless"', specification)
+            self.assertIn('"openvino"', specification)
         self.assertIn('"LSMultipleInstancesProhibited": True', mac_spec)
         self.assertIn("runner: macos-15-intel", release_workflow)
         self.assertIn("target_architecture: x86_64", release_workflow)
@@ -98,6 +107,27 @@ class RuntimeTests(unittest.TestCase):
             "startsWith(github.ref, 'refs/tags/v') || github.event_name",
             release_workflow,
         )
+        self.assertIn("Copy-Item LICENSE dist\\PhotoChoose\\LICENSE", release_workflow)
+        self.assertIn("cp LICENSE release/dmg-root/LICENSE", release_workflow)
+        self.assertIn('test -f "$mount_point/LICENSE"', release_workflow)
+
+        self.assertEqual({"file": "LICENSE"}, metadata["project"]["license"])
+        self.assertIn(
+            "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+            metadata["project"]["classifiers"],
+        )
+        self.assertTrue((project_root / "LICENSE").is_file())
+        self.assertTrue((project_root / "THIRD_PARTY_NOTICES.md").is_file())
+        self.assertEqual(
+            "ko_fi: cursedpc",
+            (project_root / ".github/FUNDING.yml").read_text(encoding="utf-8").strip(),
+        )
+        self.assertTrue(
+            (project_root / "packaging/licenses/PYTHON_LICENSE.txt").is_file()
+        )
+        self.assertTrue(
+            (project_root / "packaging/licenses/PYINSTALLER_COPYING.txt").is_file()
+        )
 
     def test_windows_installer_separates_program_and_user_data(self) -> None:
         project_root = Path(__file__).parents[1]
@@ -108,6 +138,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn(r"DefaultDirName={autopf}\PhotoChoose", installer)
         self.assertIn("PrivilegesRequired=admin", installer)
         self.assertIn("UsePreviousAppDir=yes", installer)
+        self.assertIn(r"LicenseFile=..\..\LICENSE", installer)
         self.assertIn("LegacyUninstallKey", installer)
         self.assertIn("HasLegacyPerUserInstall", installer)
         self.assertNotIn(r"DefaultDirName={localappdata}", installer)

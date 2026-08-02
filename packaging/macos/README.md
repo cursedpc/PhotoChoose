@@ -1,5 +1,9 @@
 # macOS packaging
 
+The application bundle embeds PhotoChoose's GPL license, third-party notices, and the license files
+supplied by packaged Python distributions. The DMG also places the main license and notice document
+beside PhotoChoose.app so they can be read before installation.
+
 PhotoChoose's Intel and Apple Silicon macOS releases are native PyInstaller application bundles
 distributed as separate unsigned DMGs. Build each bundle on the matching macOS architecture with
 Python 3.11; PyInstaller does not cross-build macOS applications from Windows or Linux. The spec
