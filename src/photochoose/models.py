@@ -54,6 +54,40 @@ class FaceEvidence:
 
 
 @dataclass(frozen=True)
+class IdentityFaceEvidence:
+    """Identity embedding for one detected, aligned face."""
+
+    face_index: int
+    bounds: Tuple[float, float, float, float]
+    landmarks: Tuple[Tuple[float, float], ...]
+    embedding: Tuple[float, ...]
+    quality: float
+    model_name: str
+
+
+@dataclass(frozen=True)
+class PersonIdentity:
+    """A persistent person discovered across indexed folders."""
+
+    id: int
+    display_name: str
+    photo_count: int
+    face_count: int
+    cover_photo_path: Optional[str] = None
+    cover_bounds: Optional[Tuple[float, float, float, float]] = None
+    is_named: bool = False
+
+
+@dataclass(frozen=True)
+class PersonFolder:
+    """One folder containing photographs assigned to a person."""
+
+    project_id: int
+    name: str
+    photo_count: int
+
+
+@dataclass(frozen=True)
 class ObjectEvidence:
     """One general-subject region in normalized image coordinates."""
 

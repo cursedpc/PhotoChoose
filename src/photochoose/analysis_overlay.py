@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Tuple
+from typing import Collection, Dict, Tuple
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPolygonF
@@ -23,6 +23,7 @@ OBJECT_COLORS: Dict[str, QColor] = {
     "supporting": QColor("#55c2c8"),
     "background": QColor("#9aa1aa"),
 }
+IDENTITY_HIGHLIGHT_COLOR = QColor("#ff4d55")
 
 
 class EvidenceDisplayMode(str, Enum):
@@ -57,10 +58,11 @@ def render_analysis_overlay(
     image: QImage,
     photo: Photo,
     visibility: AnalysisOverlayVisibility = AnalysisOverlayVisibility(),
+    highlighted_face_indices: Collection[int] = (),
 ) -> QImage:
     """Return a copy of an image with its stored local-analysis evidence painted."""
 
-    if image.isNull() or not _has_selected_evidence(photo, visibility):
+    if image.isNull():
         return image
     output = image.convertToFormat(QImage.Format_ARGB32_Premultiplied)
     painter = QPainter(output)
@@ -71,6 +73,7 @@ def render_analysis_overlay(
         photo,
         show_labels=True,
         visibility=visibility,
+        highlighted_face_indices=highlighted_face_indices,
     )
     painter.end()
     return output
@@ -82,14 +85,32 @@ def paint_analysis_evidence(
     photo: Photo,
     show_labels: bool,
     visibility: AnalysisOverlayVisibility = AnalysisOverlayVisibility(),
+    highlighted_face_indices: Collection[int] = (),
 ) -> None:
     """Paint normalized subject, face, and eye evidence into the displayed image."""
 
-    if not _has_selected_evidence(photo, visibility) or image_rect.isEmpty():
+    if image_rect.isEmpty():
         return
     visible_objects, visible_faces, visible_eyes, crowded = _selected_evidence(
         photo, visibility
     )
+    hidden_faces = {
+        index
+        for index, mode in visibility.face_overrides
+        if mode == EvidenceItemMode.HIDE
+    }
+    if visibility.faces != EvidenceDisplayMode.OFF:
+        selected_ids = {id(face) for face in visible_faces}
+        identity_faces = tuple(
+            face
+            for index, face in enumerate(photo.subject_regions)
+            if index in highlighted_face_indices
+            and index not in hidden_faces
+            and id(face) not in selected_ids
+        )
+        visible_faces = visible_faces + identity_faces
+    if not (visible_objects or visible_faces or visible_eyes):
+        return
     painter.save()
     painter.setClipRect(image_rect)
     for object_index, item in enumerate(visible_objects):
@@ -129,6 +150,10 @@ def paint_analysis_evidence(
                 color,
                 image_rect,
             )
+    highlighted = set(highlighted_face_indices)
+    original_face_indices = {
+        id(face): index for index, face in enumerate(photo.subject_regions)
+    }
     for index, face in enumerate(visible_faces, start=1):
         x, y, width, height = face.bounds
         face_rect = QRectF(
@@ -139,7 +164,14 @@ def paint_analysis_evidence(
         )
         face_scale = min(face_rect.width(), face_rect.height())
         line_width = max(0.85, min(3.0, face_scale / 90.0))
-        face_color = QColor("#4da3ff") if face.important else QColor("#9aa1aa")
+        original_index = original_face_indices.get(id(face), index - 1)
+        face_color = (
+            IDENTITY_HIGHLIGHT_COLOR
+            if original_index in highlighted
+            else QColor("#4da3ff")
+            if face.important
+            else QColor("#9aa1aa")
+        )
         pen = QPen(face_color, line_width * 1.15)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
@@ -159,7 +191,9 @@ def paint_analysis_evidence(
                 painter,
                 face_rect.left(),
                 max(image_rect.top(), face_rect.top() - label_height),
-                "F{0} · {1} · focus {2}".format(index, importance, focus),
+                "F{0} · {1} · focus {2}".format(
+                    original_index + 1, importance, focus
+                ),
                 face_color,
                 image_rect,
             )

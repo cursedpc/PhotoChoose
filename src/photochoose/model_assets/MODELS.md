@@ -10,6 +10,33 @@
 PhotoChoose executes YuNet through OpenVINO CPU. OpenCV DNN is retained as an automatic
 load-time and inference-time fallback.
 
+## SFace identity embeddings
+
+- File: `face_recognition_sface_2021dec.onnx`
+- Upstream: OpenCV Zoo, `models/face_recognition_sface`
+- License: Apache License 2.0 (`SFACE_LICENSE`)
+- Input: YuNet-aligned 112×112 face crop
+- Output: normalized 128-value identity embedding
+- SHA-256: `0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79`
+
+PhotoChoose runs SFace locally through OpenCV CPU and uses conservative cosine-similarity
+thresholds to discover persistent people across folders. Embeddings and corrections remain in
+the local SQLite catalog and are never exported with photographs.
+
+## OpenVINO face re-identification embeddings
+
+- Files: `face-reidentification-retail-0095.xml` and `.bin`
+- Upstream: OpenVINO Open Model Zoo, `face-reidentification-retail-0095`
+- License: Apache License 2.0 (`OPENVINO_MODEL_ZOO_LICENSE`)
+- Input: five-landmark-aligned BGR `1×3×128×128`
+- Output: normalized 256-value identity embedding
+- SHA-256 (XML): `ce53d2c9c08c0bd1c1660fb8a5b6d0e3e4ec19eb92f1036d2d83a85e83082dce`
+- SHA-256 (BIN): `241229ca3d206321868d46ce74a3c0b06c49cea58db7dc70b2e842ff287545d1`
+
+PhotoChoose executes this compact model through the existing OpenVINO CPU backend on Windows x64,
+Intel macOS, and Apple Silicon. The Open Model Zoo reports 99.47% LFW verification accuracy. The
+existing SFace model remains a recovery backend if OpenVINO cannot load.
+
 ## MediaPipe Face Mesh V2 landmarks
 
 - File: `face_landmarks_detector.tflite`

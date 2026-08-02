@@ -49,6 +49,7 @@ class PhotoListModel(QAbstractListModel):
     GroupRole = Qt.UserRole + 5
     AssetRole = Qt.UserRole + 6
     AnalysisEvidenceRole = Qt.UserRole + 7
+    HighlightedFacesRole = Qt.UserRole + 8
 
     def __init__(self, database: PhotoDatabase, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
@@ -59,6 +60,7 @@ class PhotoListModel(QAbstractListModel):
         self._thumbnail_generation = 0
         self._in_flight: Set[Tuple[int, int]] = set()
         self._thread_pool = QThreadPool.globalInstance()
+        self._highlighted_face_indices = {}
         self._placeholder = QPixmap(THUMBNAIL_SIZE)
         self._placeholder.fill(QColor("#2b3038"))
 
@@ -185,6 +187,8 @@ class PhotoListModel(QAbstractListModel):
             return photo.asset_badge
         if role == self.AnalysisEvidenceRole:
             return photo
+        if role == self.HighlightedFacesRole:
+            return self._highlighted_face_indices.get(photo.id, ())
         return None
 
     def refresh(
@@ -193,8 +197,29 @@ class PhotoListModel(QAbstractListModel):
         view: PhotoView,
         invalidate_thumbnails: bool = False,
     ) -> None:
+        self._highlighted_face_indices = {}
         self.set_photos(
             self.database.list_photos(project_id, view),
+            invalidate_thumbnails=invalidate_thumbnails,
+        )
+
+    def refresh_person(
+        self,
+        person_id: Optional[int],
+        project_id: Optional[int] = None,
+        view: PhotoView = PhotoView.ALL,
+        invalidate_thumbnails: bool = False,
+    ) -> None:
+        photos = self.database.list_photos_for_person(person_id, project_id, view)
+        self._highlighted_face_indices = (
+            self.database.face_indices_for_person(
+                person_id, [photo.id for photo in photos]
+            )
+            if person_id is not None
+            else {}
+        )
+        self.set_photos(
+            photos,
             invalidate_thumbnails=invalidate_thumbnails,
         )
 

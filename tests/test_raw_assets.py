@@ -54,16 +54,16 @@ class RawAssetTests(unittest.TestCase):
             database.set_decision([analyzed.id], Decision.KEEP)
             destination = root / "Export"
 
-            result = ProjectExporter(database).export_keep_and_best(
+            result = ProjectExporter(database).export_keep(
                 project.id, destination
             )
 
             self.assertEqual(3, result.copied)
-            self.assertEqual(b"private raw bytes", (destination / "Keep/frame.cr3").read_bytes())
-            self.assertTrue((destination / "Keep/frame.jpg").is_file())
+            self.assertEqual(b"private raw bytes", (destination / "frame.cr3").read_bytes())
+            self.assertTrue((destination / "frame.jpg").is_file())
             self.assertEqual(
                 "<x:xmpmeta />",
-                (destination / "Keep/frame.cr3.xmp").read_text(encoding="utf-8"),
+                (destination / "frame.cr3.xmp").read_text(encoding="utf-8"),
             )
 
     def test_raw_only_uses_largest_embedded_jpeg(self) -> None:

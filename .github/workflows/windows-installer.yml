@@ -62,6 +62,15 @@ jobs:
       - name: Build one-folder application
         run: python -m PyInstaller --noconfirm --clean packaging/windows/photochoose.spec
 
+      - name: Place license notices beside portable application
+        shell: pwsh
+        run: |
+          Copy-Item LICENSE dist\PhotoChoose\LICENSE
+          Copy-Item THIRD_PARTY_NOTICES.md dist\PhotoChoose\THIRD_PARTY_NOTICES.md
+          if (-not (Test-Path dist\PhotoChoose\LICENSE) -or -not (Test-Path dist\PhotoChoose\THIRD_PARTY_NOTICES.md)) {
+            throw "Portable license notices are missing"
+          }
+
       - name: Smoke-test portable executable
         shell: pwsh
         run: |
@@ -125,6 +134,9 @@ jobs:
           }
           if (-not (Test-Path "$installDir\PhotoChoose.exe")) {
             throw "PhotoChoose was not installed under Program Files"
+          }
+          if (-not (Test-Path "$installDir\LICENSE") -or -not (Test-Path "$installDir\THIRD_PARTY_NOTICES.md")) {
+            throw "Installed license notices are missing"
           }
           if (Test-Path "$legacyInstallDir\PhotoChoose.exe") {
             throw "Legacy Local AppData application files were not removed"
@@ -283,6 +295,8 @@ jobs:
         run: |
           mkdir -p release/dmg-root
           ditto --noextattr --noacl dist/PhotoChoose.app release/dmg-root/PhotoChoose.app
+          cp LICENSE release/dmg-root/LICENSE
+          cp THIRD_PARTY_NOTICES.md release/dmg-root/THIRD_PARTY_NOTICES.md
           ln -s /Applications release/dmg-root/Applications
           hdiutil create -volname PhotoChoose -srcfolder release/dmg-root -ov -format UDZO \
             "release/PhotoChoose-$APP_VERSION-macOS-${{ matrix.dmg_suffix }}.dmg"
@@ -295,6 +309,8 @@ jobs:
           hdiutil attach "release/PhotoChoose-$APP_VERSION-macOS-${{ matrix.dmg_suffix }}.dmg" \
             -readonly -nobrowse -mountpoint "$mount_point"
           test -x "$mount_point/PhotoChoose.app/Contents/MacOS/PhotoChoose"
+          test -f "$mount_point/LICENSE"
+          test -f "$mount_point/THIRD_PARTY_NOTICES.md"
           test "$(lipo -archs "$mount_point/PhotoChoose.app/Contents/MacOS/PhotoChoose")" = "${{ matrix.target_architecture }}"
           hdiutil detach "$mount_point"
 

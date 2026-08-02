@@ -23,6 +23,16 @@ from photochoose.onboarding import (  # noqa: E402
 
 
 class OnboardingTests(unittest.TestCase):
+    def test_export_hint_describes_every_current_export_path(self) -> None:
+        export_step = next(
+            step for step in OnboardingController._build_steps() if step.key == "finish"
+        )
+
+        self.assertIn("Export Keep…", export_step.body)
+        self.assertIn("Export Best…", export_step.body)
+        self.assertIn("Export selected…", export_step.body)
+        self.assertIn("without an extra Keep or Best folder", export_step.body)
+
     def test_export_hint_highlights_only_the_file_menu(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

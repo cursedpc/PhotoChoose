@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Optional, Sequence
 
-from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QImage, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QFrame,
@@ -23,6 +23,8 @@ from photochoose.models import Photo
 
 class SelectionInspector(QFrame):
     """Quiet contextual controls and expandable evidence for the current selection."""
+
+    personSelected = Signal(int, str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -127,6 +129,20 @@ class SelectionInspector(QFrame):
         open_row.addWidget(self.compare_button)
         layout.addLayout(open_row)
 
+        self.people_section = QWidget()
+        people_layout = QVBoxLayout(self.people_section)
+        people_layout.setContentsMargins(0, 2, 0, 2)
+        people_layout.setSpacing(5)
+        people_label = QLabel("People")
+        people_label.setObjectName("eyebrow")
+        people_layout.addWidget(people_label)
+        self.people_buttons = QHBoxLayout()
+        self.people_buttons.setSpacing(5)
+        self.people_buttons.addStretch(1)
+        people_layout.addLayout(self.people_buttons)
+        self.people_section.hide()
+        layout.addWidget(self.people_section)
+
         view_label = QLabel("Display")
         view_label.setObjectName("eyebrow")
         view_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
@@ -167,6 +183,24 @@ class SelectionInspector(QFrame):
         layout.addWidget(self.contents, 1)
         self.set_expanded(False)
         self.set_photos([], 0)
+
+    def set_people(self, people: Sequence[tuple[int, str]]) -> None:
+        while self.people_buttons.count() > 1:
+            item = self.people_buttons.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        for person_id, display_name in people:
+            button = QPushButton(display_name)
+            button.setProperty("kind", "quiet")
+            button.setToolTip("Show every photograph of {0}".format(display_name))
+            button.clicked.connect(
+                lambda _checked=False, selected_id=person_id, label=display_name: (
+                    self.personSelected.emit(selected_id, label)
+                )
+            )
+            self.people_buttons.insertWidget(self.people_buttons.count() - 1, button)
+        self.people_section.setVisible(bool(people))
 
     def set_expanded(self, expanded: bool) -> None:
         self.contents.setVisible(expanded)

@@ -300,6 +300,33 @@ QTabBar::tab:selected {
     border-bottom-color: #5f8ac5;
 }
 
+QToolButton#peopleFilterButton {
+    color: #92959c;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    min-height: 36px;
+    padding: 0 14px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+QToolButton#peopleFilterButton:hover { color: #c8cacf; background: transparent; }
+QToolButton#peopleFilterButton:checked {
+    color: #eeeeef;
+    border-bottom-color: #5f8ac5;
+}
+
+QMenu#peopleMenu::item {
+    min-height: 48px;
+    padding: 5px 18px 5px 10px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+QMenu#peopleMenu::item:selected { background: #3b557a; }
+
 QMenuBar {
     background: #191a1d;
     border-bottom: 1px solid #292a2e;

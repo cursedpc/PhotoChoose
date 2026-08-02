@@ -45,6 +45,10 @@ class PhotoDelegate(QStyledItemDelegate):
                         QRectF(float(x), float(y), float(scaled.width()), float(scaled.height())),
                         photo,
                         show_labels=False,
+                        highlighted_face_indices=index.data(
+                            PhotoListModel.HighlightedFacesRole
+                        )
+                        or (),
                     )
 
         decision = index.data(PhotoListModel.DecisionRole)

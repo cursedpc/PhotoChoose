@@ -95,6 +95,10 @@ def run_packaging_smoke_test() -> None:
     import numpy as np
     import pi_heif
 
+    from photochoose.identity_recognition import (
+        OPENVINO_REID_MODEL_NAME,
+        StrongIdentityEncoder,
+    )
     from photochoose.inference_backend import openvino_backend_status
     from photochoose.object_models import GeneralSubjectAnalyzer
     from photochoose.vision_models import ModelSubjectAnalyzer
@@ -116,6 +120,29 @@ def run_packaging_smoke_test() -> None:
     ):
         raise RuntimeError("Bundled YuNet or face-mesh OpenVINO inference failed")
     subject_analyzer.eye_analyzer.analyze(image)
+
+    identity_encoder = StrongIdentityEncoder()
+    identity_face = np.asarray(
+        [40, 30, 160, 180, 80, 100, 160, 100, 120, 135, 90, 175, 150, 175, 0.99],
+        dtype=np.float32,
+    )
+    identity_result = identity_encoder.encode(
+        np.full((240, 240, 3), 128, dtype=np.uint8),
+        identity_face,
+        0,
+        (0.16, 0.12, 0.67, 0.75),
+        100.0,
+    )
+    if (
+        identity_result is None
+        or len(identity_result.embedding) != 256
+        or identity_result.model_name != OPENVINO_REID_MODEL_NAME
+    ):
+        raise RuntimeError(
+            "Bundled identity inference failed: {0}".format(
+                identity_encoder.error
+            )
+        )
 
     object_analyzer = GeneralSubjectAnalyzer()
     object_result = object_analyzer.analyze(image)

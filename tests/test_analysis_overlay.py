@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from photochoose.analysis_overlay import (  # noqa: E402
     EYE_COLORS,
+    IDENTITY_HIGHLIGHT_COLOR,
     AnalysisOverlayVisibility,
     EvidenceDisplayMode,
     EvidenceItemMode,
@@ -89,6 +90,40 @@ class AnalysisOverlayTests(unittest.TestCase):
 
         self.assertEqual(QColor("white"), QColor(source.pixel(100, 60)))
         self.assertNotEqual(QColor("white"), QColor(output.pixel(100, 60)))
+
+    def test_active_person_face_uses_red_identity_outline(self) -> None:
+        source = QImage(400, 300, QImage.Format_RGB32)
+        source.fill(QColor("white"))
+        photo = Photo(
+            id=1,
+            project_id=1,
+            relative_path="person.jpg",
+            absolute_path="/person.jpg",
+            decision=Decision.KEEP,
+            is_best=False,
+            subject_regions=(
+                FaceEvidence((0.2, 0.2, 0.3, 0.5), 0.98, 200.0, True),
+            ),
+        )
+
+        output = render_analysis_overlay(
+            source,
+            photo,
+            highlighted_face_indices=(0,),
+        )
+
+        target = IDENTITY_HIGHLIGHT_COLOR
+        matching_pixels = 0
+        for y in range(output.height()):
+            for x in range(output.width()):
+                color = output.pixelColor(x, y)
+                if (
+                    abs(color.red() - target.red()) < 20
+                    and abs(color.green() - target.green()) < 20
+                    and abs(color.blue() - target.blue()) < 20
+                ):
+                    matching_pixels += 1
+        self.assertGreater(matching_pixels, 5)
 
     def test_obscured_eye_has_distinct_overlay_color(self) -> None:
         self.assertIn("obscured", EYE_COLORS)

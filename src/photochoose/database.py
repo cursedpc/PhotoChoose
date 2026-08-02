@@ -6,13 +6,18 @@ from contextlib import closing
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
+import numpy as np
+
 from photochoose.analysis_profiles import ANALYSIS_VERSION, get_analysis_profile
 from photochoose.assets import discover_logical_assets
 from photochoose.models import (
     Decision,
     EyeEvidence,
     FaceEvidence,
+    IdentityFaceEvidence,
     ObjectEvidence,
+    PersonFolder,
+    PersonIdentity,
     Photo,
     PhotoView,
     Project,
@@ -155,13 +160,68 @@ class PhotoDatabase:
 
                 CREATE INDEX IF NOT EXISTS manual_overrides_project_created
                     ON manual_overrides(project_id, created_at);
+
+                CREATE TABLE IF NOT EXISTS persons (
+                    id INTEGER PRIMARY KEY,
+                    display_name TEXT,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS face_instances (
+                    id INTEGER PRIMARY KEY,
+                    photo_id INTEGER NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+                    face_index INTEGER NOT NULL,
+                    bounds TEXT NOT NULL,
+                    landmarks TEXT NOT NULL,
+                    embedding BLOB NOT NULL,
+                    embedding_dimension INTEGER NOT NULL,
+                    quality REAL NOT NULL,
+                    model_name TEXT NOT NULL,
+                    person_id INTEGER REFERENCES persons(id) ON DELETE SET NULL,
+                    assignment_source TEXT NOT NULL DEFAULT 'unknown'
+                        CHECK (assignment_source IN ('unknown', 'automatic', 'manual')),
+                    assignment_confidence REAL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(photo_id, face_index)
+                );
+
+                CREATE INDEX IF NOT EXISTS face_instances_person
+                    ON face_instances(person_id);
+                CREATE INDEX IF NOT EXISTS face_instances_photo
+                    ON face_instances(photo_id);
+
+                CREATE TABLE IF NOT EXISTS identity_rejections (
+                    face_id INTEGER NOT NULL REFERENCES face_instances(id) ON DELETE CASCADE,
+                    person_id INTEGER NOT NULL REFERENCES persons(id) ON DELETE CASCADE,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY(face_id, person_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS identity_metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
                 """
             )
             self._add_missing_project_columns(connection)
             self._add_missing_photo_columns(connection)
             self._add_missing_override_columns(connection)
             self._mark_outdated_analysis(connection)
+            self._remove_automatic_best(connection)
             connection.commit()
+
+    @staticmethod
+    def _remove_automatic_best(connection: sqlite3.Connection) -> None:
+        """Migrate legacy automatic Best flags to the new manual-only behavior."""
+
+        connection.execute(
+            """
+            UPDATE photos SET is_best = 0, best_source = 'none'
+            WHERE best_source = 'automatic'
+            """
+        )
 
     @staticmethod
     def _add_missing_project_columns(connection: sqlite3.Connection) -> None:
@@ -324,6 +384,19 @@ class PhotoDatabase:
                 FROM projects
                 WHERE is_open = 1
                 ORDER BY last_opened_at DESC, name COLLATE NOCASE
+                """
+            ).fetchall()
+        return [self._project_from_row(row) for row in rows]
+
+    def list_all_projects(self) -> List[Project]:
+        """Return open and closed folders retained in the local catalog."""
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT id, name, root_path, analysis_profile, best_count_per_group
+                FROM projects
+                ORDER BY name COLLATE NOCASE, id
                 """
             ).fetchall()
         return [self._project_from_row(row) for row in rows]
@@ -675,24 +748,7 @@ class PhotoDatabase:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
-                SELECT p.id, p.project_id, p.relative_path, p.decision, p.is_best,
-                       p.decision_source, p.analysis_status, p.analysis_profile,
-                       p.analysis_version, p.focus_score,
-                       p.brightness, p.clipped_dark, p.clipped_bright,
-                       p.auto_reasons, p.duplicate_of_id, p.best_source,
-                       p.perceptual_hash, p.content_hash, p.face_count, p.eye_count,
-                       p.closed_eye_count, p.uncertain_eye_count, p.subject_model,
-                       p.face_confidence, p.eye_open_score, p.eye_focus_score,
-                       p.subject_regions,
-                       p.subject_focus_score, p.object_count, p.object_model,
-                       p.primary_subject_focus_score, p.subject_objects,
-                       p.similarity_group, p.group_reason,
-                       p.best_score, p.captured_at, p.camera_make, p.camera_model,
-                       p.lens_model, p.iso, p.exposure_seconds, p.aperture,
-                       p.focal_length, p.preview_relative_path,
-                       p.cached_preview_path, p.asset_paths, p.raw_count,
-                       p.sidecar_count, p.motion_count, p.burst_id, p.live_photo_id,
-                       projects.root_path
+                SELECT p.*, projects.root_path
                 FROM photos AS p
                 JOIN projects ON projects.id = p.project_id
                 WHERE {where}
@@ -723,10 +779,6 @@ class PhotoDatabase:
                 """.format(placeholders),
                 list(photo_ids),
             ).fetchall()
-            selection_configs = {
-                (int(row["project_id"]), int(row["best_count_per_group"] or 1))
-                for row in rows
-            }
             for row in rows:
                 if row["decision"] == decision.value and row["decision_source"] == source:
                     continue
@@ -783,8 +835,6 @@ class PhotoDatabase:
                 [decision.value, source] + list(photo_ids),
             )
             connection.commit()
-        for project_id, count in selection_configs:
-            self.select_automatic_best(project_id, count)
 
     def apply_analysis(
         self,
@@ -864,10 +914,6 @@ class PhotoDatabase:
                 """.format(placeholders),
                 list(photo_ids),
             ).fetchall()
-            selection_configs = {
-                (int(row["project_id"]), int(row["best_count_per_group"] or 1))
-                for row in rows
-            }
             for row in rows:
                 connection.execute(
                     """
@@ -924,8 +970,6 @@ class PhotoDatabase:
                 list(photo_ids),
             )
             connection.commit()
-        for project_id, count in selection_configs:
-            self.select_automatic_best(project_id, count)
 
     def set_project_analysis_profile(self, project_id: int, profile: str) -> None:
         """Select a profile without silently re-running or replacing old decisions."""
@@ -969,100 +1013,6 @@ class PhotoDatabase:
                 (project_id,),
             ).fetchone()
         return int(row["total"])
-
-    def set_project_best_count(self, project_id: int, count: int) -> int:
-        """Persist a per-group limit and immediately refresh automatic Best flags."""
-
-        if not 1 <= count <= 5:
-            raise ValueError("Best count per group must be between 1 and 5")
-        with closing(self._connect()) as connection:
-            result = connection.execute(
-                "UPDATE projects SET best_count_per_group = ? WHERE id = ?",
-                (count, project_id),
-            )
-            if result.rowcount == 0:
-                raise ValueError("Unknown folder id: {0}".format(project_id))
-            connection.commit()
-        return self.select_automatic_best(project_id, count)
-
-    def select_automatic_best(
-        self,
-        project_id: int,
-        count_per_group: int,
-        minimum_hash_distance: int = 9,
-    ) -> int:
-        """Select up to N diverse automatic Best frames while preserving manual flags."""
-
-        if not 1 <= count_per_group <= 5:
-            raise ValueError("Best count per group must be between 1 and 5")
-        with closing(self._connect()) as connection:
-            connection.execute(
-                """
-                UPDATE photos
-                SET is_best = 0, best_source = 'none'
-                WHERE project_id = ? AND best_source = 'automatic'
-                """,
-                (project_id,),
-            )
-            rows = connection.execute(
-                """
-                SELECT id, relative_path, decision, is_best, best_source,
-                       similarity_group, best_score, perceptual_hash
-                FROM photos
-                WHERE project_id = ? AND similarity_group IS NOT NULL
-                ORDER BY similarity_group, best_score DESC, relative_path COLLATE NOCASE
-                """,
-                (project_id,),
-            ).fetchall()
-            groups: Dict[str, List[sqlite3.Row]] = {}
-            for row in rows:
-                groups.setdefault(row["similarity_group"], []).append(row)
-
-            selected_ids = []
-            for items in groups.values():
-                manual_best = [
-                    row
-                    for row in items
-                    if row["best_source"] == "manual" and row["is_best"]
-                ]
-                remaining = max(0, count_per_group - len(manual_best))
-                selected_hashes = [
-                    row["perceptual_hash"]
-                    for row in manual_best
-                    if row["perceptual_hash"]
-                ]
-                candidates = [
-                    row
-                    for row in items
-                    if row["decision"] != Decision.REJECT.value
-                    and row["best_source"] != "manual"
-                    and row["best_score"] is not None
-                ]
-                for candidate in candidates:
-                    if remaining == 0:
-                        break
-                    candidate_hash = candidate["perceptual_hash"]
-                    if candidate_hash and any(
-                        self._hash_distance(candidate_hash, selected_hash)
-                        < minimum_hash_distance
-                        for selected_hash in selected_hashes
-                    ):
-                        continue
-                    selected_ids.append(candidate["id"])
-                    if candidate_hash:
-                        selected_hashes.append(candidate_hash)
-                    remaining -= 1
-
-            if selected_ids:
-                connection.executemany(
-                    """
-                    UPDATE photos SET is_best = 1, best_source = 'automatic'
-                    WHERE id = ? AND best_source != 'manual'
-                    """,
-                    [(photo_id,) for photo_id in selected_ids],
-                )
-            connection.commit()
-        return len(selected_ids)
 
     def list_manual_overrides(self, project_id: int) -> List[Dict[str, object]]:
         """Return local calibration evidence without reading or exporting image data."""
@@ -1165,6 +1115,690 @@ class PhotoDatabase:
             )
             connection.commit()
 
+    def replace_identity_faces(
+        self,
+        photo_id: int,
+        faces: Sequence[IdentityFaceEvidence],
+    ) -> None:
+        """Replace inferred faces while preserving assignments for the same regions."""
+
+        with closing(self._connect()) as connection:
+            previous = connection.execute(
+                """
+                SELECT f.id, f.face_index, f.bounds, f.model_name,
+                       f.assignment_source, persons.display_name
+                FROM face_instances AS f
+                LEFT JOIN persons ON persons.id = f.person_id
+                WHERE f.photo_id = ?
+                """,
+                (photo_id,),
+            ).fetchall()
+            old_bounds = {
+                int(row["id"]): tuple(float(value) for value in json.loads(row["bounds"]))
+                for row in previous
+            }
+            remaining = set(old_bounds)
+            old_models = {int(row["id"]): str(row["model_name"]) for row in previous}
+            reset_on_model_change = {
+                int(row["id"])
+                for row in previous
+                if row["assignment_source"] == "automatic"
+                and not str(row["display_name"] or "").strip()
+            }
+            if previous:
+                connection.execute(
+                    "UPDATE face_instances SET face_index = -id WHERE photo_id = ?",
+                    (photo_id,),
+                )
+
+            for face in faces:
+                matched_id = None
+                matched_iou = 0.0
+                for candidate_id in remaining:
+                    overlap = self._bounds_iou(face.bounds, old_bounds[candidate_id])
+                    if overlap > matched_iou:
+                        matched_iou = overlap
+                        matched_id = candidate_id
+                embedding = np.asarray(face.embedding, dtype=np.float32)
+                if not embedding.size:
+                    continue
+                values = (
+                    face.face_index,
+                    json.dumps(list(face.bounds), separators=(",", ":")),
+                    json.dumps(
+                        [list(point) for point in face.landmarks],
+                        separators=(",", ":"),
+                    ),
+                    embedding.tobytes(),
+                    int(embedding.size),
+                    float(face.quality),
+                    face.model_name,
+                )
+                if matched_id is not None and matched_iou >= 0.45:
+                    connection.execute(
+                        """
+                        UPDATE face_instances SET
+                            face_index = ?, bounds = ?, landmarks = ?, embedding = ?,
+                            embedding_dimension = ?, quality = ?, model_name = ?,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                        """,
+                        values + (matched_id,),
+                    )
+                    if (
+                        matched_id in reset_on_model_change
+                        and old_models[matched_id] != face.model_name
+                    ):
+                        connection.execute(
+                            """
+                            UPDATE face_instances SET person_id = NULL,
+                                assignment_source = 'unknown',
+                                assignment_confidence = NULL
+                            WHERE id = ?
+                            """,
+                            (matched_id,),
+                        )
+                    remaining.discard(matched_id)
+                else:
+                    connection.execute(
+                        """
+                        INSERT INTO face_instances(
+                            photo_id, face_index, bounds, landmarks, embedding,
+                            embedding_dimension, quality, model_name
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (photo_id,) + values,
+                    )
+
+            if remaining:
+                placeholders = ",".join("?" for _ in remaining)
+                connection.execute(
+                    "DELETE FROM face_instances WHERE id IN ({0})".format(placeholders),
+                    list(remaining),
+                )
+            connection.execute(
+                """
+                DELETE FROM persons
+                WHERE NULLIF(TRIM(display_name), '') IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM face_instances
+                      WHERE face_instances.person_id = persons.id
+                  )
+                """
+            )
+            connection.commit()
+
+    def copy_identity_faces(self, source_photo_id: int, target_photo_id: int) -> None:
+        """Copy identity evidence for an exact duplicate photograph."""
+
+        with closing(self._connect()) as connection:
+            connection.execute(
+                "DELETE FROM face_instances WHERE photo_id = ?",
+                (target_photo_id,),
+            )
+            connection.execute(
+                """
+                INSERT INTO face_instances(
+                    photo_id, face_index, bounds, landmarks, embedding,
+                    embedding_dimension, quality, model_name, person_id,
+                    assignment_source, assignment_confidence
+                )
+                SELECT ?, face_index, bounds, landmarks, embedding,
+                       embedding_dimension, quality, model_name, person_id,
+                       assignment_source, assignment_confidence
+                FROM face_instances WHERE photo_id = ?
+                """,
+                (target_photo_id, source_photo_id),
+            )
+            connection.commit()
+
+    def list_identity_faces(self) -> List[Dict[str, object]]:
+        """Return local embeddings and assignment metadata for identity grouping."""
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT f.id, f.photo_id, f.face_index, f.bounds, f.landmarks,
+                       f.embedding, f.embedding_dimension, f.quality, f.model_name,
+                       f.person_id, f.assignment_source, f.assignment_confidence,
+                       p.project_id,
+                       CASE WHEN NULLIF(TRIM(persons.display_name), '') IS NULL
+                            THEN 0 ELSE 1 END AS person_is_named
+                FROM face_instances AS f
+                JOIN photos AS p ON p.id = f.photo_id
+                LEFT JOIN persons ON persons.id = f.person_id
+                ORDER BY f.id
+                """
+            ).fetchall()
+        results: List[Dict[str, object]] = []
+        for row in rows:
+            item = dict(row)
+            dimension = int(item["embedding_dimension"])
+            item["embedding"] = np.frombuffer(
+                item["embedding"], dtype=np.float32, count=dimension
+            ).copy()
+            item["bounds"] = tuple(float(value) for value in json.loads(item["bounds"]))
+            item["landmarks"] = tuple(
+                (float(point[0]), float(point[1]))
+                for point in json.loads(item["landmarks"])
+            )
+            results.append(item)
+        return results
+
+    def create_person(self) -> int:
+        with closing(self._connect()) as connection:
+            cursor = connection.execute("INSERT INTO persons DEFAULT VALUES")
+            connection.commit()
+            return int(cursor.lastrowid)
+
+    def assign_identity_face(
+        self,
+        face_id: int,
+        person_id: int,
+        confidence: float,
+        source: str = "automatic",
+    ) -> None:
+        if source not in {"automatic", "manual"}:
+            raise ValueError("Invalid identity assignment source")
+        with closing(self._connect()) as connection:
+            rejected = connection.execute(
+                """
+                SELECT 1 FROM identity_rejections
+                WHERE face_id = ? AND person_id = ?
+                """,
+                (face_id, person_id),
+            ).fetchone()
+            if rejected is not None:
+                return
+            connection.execute(
+                """
+                UPDATE face_instances SET
+                    person_id = ?, assignment_source = ?, assignment_confidence = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (person_id, source, float(confidence), face_id),
+            )
+            connection.execute(
+                "UPDATE persons SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (person_id,),
+            )
+            connection.commit()
+
+    def person_has_photo(
+        self,
+        person_id: int,
+        photo_id: int,
+        excluding_face_id: Optional[int] = None,
+    ) -> bool:
+        parameters: List[object] = [person_id, photo_id]
+        exclusion = ""
+        if excluding_face_id is not None:
+            exclusion = " AND id != ?"
+            parameters.append(excluding_face_id)
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT 1 FROM face_instances
+                WHERE person_id = ? AND photo_id = ?{0}
+                LIMIT 1
+                """.format(exclusion),
+                parameters,
+            ).fetchone()
+        return row is not None
+
+    def rejected_person_ids(self, face_id: int) -> Tuple[int, ...]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                "SELECT person_id FROM identity_rejections WHERE face_id = ?",
+                (face_id,),
+            ).fetchall()
+        return tuple(int(row["person_id"]) for row in rows)
+
+    def rename_person(self, person_id: int, display_name: str) -> None:
+        name = display_name.strip()
+        with closing(self._connect()) as connection:
+            connection.execute(
+                """
+                UPDATE persons SET display_name = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (name or None, person_id),
+            )
+            connection.commit()
+
+    def reject_photo_person(self, photo_id: int, person_id: int) -> int:
+        """Remove one person's face assignments from a photo and remember it."""
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT id FROM face_instances
+                WHERE photo_id = ? AND person_id = ?
+                """,
+                (photo_id, person_id),
+            ).fetchall()
+            for row in rows:
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO identity_rejections(face_id, person_id)
+                    VALUES (?, ?)
+                    """,
+                    (row["id"], person_id),
+                )
+            connection.execute(
+                """
+                UPDATE face_instances SET
+                    person_id = NULL, assignment_source = 'manual',
+                    assignment_confidence = NULL, updated_at = CURRENT_TIMESTAMP
+                WHERE photo_id = ? AND person_id = ?
+                """,
+                (photo_id, person_id),
+            )
+            connection.commit()
+        return len(rows)
+
+    def merge_persons(self, target_person_id: int, source_person_id: int) -> None:
+        if target_person_id == source_person_id:
+            return
+        with closing(self._connect()) as connection:
+            connection.execute(
+                """
+                UPDATE face_instances SET person_id = ?, assignment_source = 'manual',
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE person_id = ?
+                  AND id NOT IN (
+                      SELECT face_id FROM identity_rejections WHERE person_id = ?
+                  )
+                """,
+                (target_person_id, source_person_id, target_person_id),
+            )
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO identity_rejections(face_id, person_id)
+                SELECT face_id, ? FROM identity_rejections
+                WHERE person_id = ?
+                """,
+                (target_person_id, source_person_id),
+            )
+            connection.execute("DELETE FROM persons WHERE id = ?", (source_person_id,))
+            connection.execute(
+                "UPDATE persons SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (target_person_id,),
+            )
+            connection.commit()
+
+    def merge_automatic_person(
+        self,
+        target_person_id: int,
+        source_person_id: int,
+        confidence: float,
+    ) -> None:
+        """Merge an entirely automatic fragment without creating manual truth."""
+
+        if target_person_id == source_person_id:
+            return
+        with closing(self._connect()) as connection:
+            source = connection.execute(
+                """
+                SELECT COUNT(*) AS total,
+                       SUM(assignment_source != 'automatic') AS protected
+                FROM face_instances WHERE person_id = ?
+                """,
+                (source_person_id,),
+            ).fetchone()
+            if source is None or not int(source["total"] or 0):
+                return
+            if int(source["protected"] or 0):
+                return
+            connection.execute(
+                """
+                UPDATE face_instances SET person_id = ?,
+                    assignment_confidence = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE person_id = ?
+                  AND id NOT IN (
+                      SELECT face_id FROM identity_rejections WHERE person_id = ?
+                  )
+                """,
+                (
+                    target_person_id,
+                    max(0.0, min(1.0, float(confidence))),
+                    source_person_id,
+                    target_person_id,
+                ),
+            )
+            connection.execute("DELETE FROM persons WHERE id = ?", (source_person_id,))
+            connection.execute(
+                "UPDATE persons SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (target_person_id,),
+            )
+            connection.commit()
+
+    def list_people(self, project_id: Optional[int] = None) -> List[PersonIdentity]:
+        parameters: List[object] = []
+        project_clause = ""
+        if project_id is not None:
+            project_clause = " AND ph.project_id = ?"
+            parameters.append(project_id)
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT persons.id, persons.display_name,
+                       COUNT(fi.id) AS face_count,
+                       COUNT(DISTINCT fi.photo_id) AS photo_count
+                FROM persons
+                JOIN face_instances AS fi ON fi.person_id = persons.id
+                JOIN photos AS ph ON ph.id = fi.photo_id
+                WHERE 1 = 1{0}
+                GROUP BY persons.id
+                ORDER BY COALESCE(NULLIF(persons.display_name, ''),
+                                  printf('Person %08d', persons.id)) COLLATE NOCASE
+                """.format(project_clause),
+                parameters,
+            ).fetchall()
+            cover_rows = connection.execute(
+                """
+                SELECT fi.person_id, fi.bounds, ph.relative_path,
+                       ph.preview_relative_path, ph.cached_preview_path,
+                       projects.root_path
+                FROM face_instances AS fi
+                JOIN photos AS ph ON ph.id = fi.photo_id
+                JOIN projects ON projects.id = ph.project_id
+                WHERE fi.person_id IS NOT NULL{0}
+                ORDER BY fi.person_id, fi.quality DESC, fi.id
+                """.format(project_clause),
+                parameters,
+            ).fetchall()
+            covers = {}
+            for cover in cover_rows:
+                covers.setdefault(int(cover["person_id"]), cover)
+
+            people: List[PersonIdentity] = []
+            for row in rows:
+                cover = covers.get(int(row["id"]))
+                cover_path = None
+                cover_bounds = None
+                if cover is not None:
+                    if cover["cached_preview_path"]:
+                        cover_path = str(cover["cached_preview_path"])
+                    else:
+                        relative = cover["preview_relative_path"] or cover["relative_path"]
+                        cover_path = str(Path(cover["root_path"]) / Path(relative))
+                    cover_bounds = tuple(
+                        float(value) for value in json.loads(cover["bounds"])
+                    )
+                explicit_name = str(row["display_name"] or "").strip()
+                people.append(
+                    PersonIdentity(
+                        id=int(row["id"]),
+                        display_name=explicit_name or "Person {0}".format(row["id"]),
+                        photo_count=int(row["photo_count"]),
+                        face_count=int(row["face_count"]),
+                        cover_photo_path=cover_path,
+                        cover_bounds=cover_bounds,
+                        is_named=bool(explicit_name),
+                    )
+                )
+        return people
+
+    def list_person_folders(self, person_id: int) -> List[PersonFolder]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT projects.id, projects.name, COUNT(DISTINCT ph.id) AS photo_count
+                FROM face_instances AS fi
+                JOIN photos AS ph ON ph.id = fi.photo_id
+                JOIN projects ON projects.id = ph.project_id
+                WHERE fi.person_id = ?
+                GROUP BY projects.id
+                ORDER BY projects.name COLLATE NOCASE
+                """,
+                (person_id,),
+            ).fetchall()
+        return [
+            PersonFolder(int(row["id"]), str(row["name"]), int(row["photo_count"]))
+            for row in rows
+        ]
+
+    def identity_unknown_count(self, project_id: Optional[int] = None) -> int:
+        parameters: List[object] = []
+        project_clause = ""
+        if project_id is not None:
+            project_clause = " AND ph.project_id = ?"
+            parameters.append(project_id)
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS total
+                FROM face_instances AS fi
+                JOIN photos AS ph ON ph.id = fi.photo_id
+                WHERE fi.person_id IS NULL{0}
+                """.format(project_clause),
+                parameters,
+            ).fetchone()
+        return int(row["total"])
+
+    def list_photos_for_person(
+        self,
+        person_id: Optional[int],
+        project_id: Optional[int] = None,
+        view: PhotoView = PhotoView.ALL,
+    ) -> List[Photo]:
+        """List unique photos matching both an identity and decision view."""
+
+        with closing(self._connect()) as connection:
+            parameters: List[object] = []
+            identity_clause = "fi.person_id IS NULL"
+            if person_id is not None:
+                identity_clause = "fi.person_id = ?"
+                parameters.append(person_id)
+            project_clause = ""
+            if project_id is not None:
+                project_clause = " AND ph.project_id = ?"
+                parameters.append(project_id)
+            view_clause = ""
+            if view == PhotoView.BEST:
+                view_clause = " AND ph.is_best = 1"
+            elif view != PhotoView.ALL:
+                view_clause = " AND ph.decision = ?"
+                parameters.append(view.value)
+            rows = connection.execute(
+                """
+                SELECT DISTINCT ph.*, projects.root_path
+                FROM face_instances AS fi
+                JOIN photos AS ph ON ph.id = fi.photo_id
+                JOIN projects ON projects.id = ph.project_id
+                WHERE {0}{1}{2}
+                ORDER BY ph.captured_at IS NULL, ph.captured_at,
+                         ph.relative_path COLLATE NOCASE
+                """.format(identity_clause, project_clause, view_clause),
+                parameters,
+            ).fetchall()
+        return [self._photo_from_row(row) for row in rows]
+
+    def identity_counts(
+        self,
+        person_id: Optional[int],
+        project_id: int,
+    ) -> Dict[str, int]:
+        """Count each decision view inside one folder-scoped identity filter."""
+
+        counts = {view.value: 0 for view in PhotoView}
+        identity_clause = "fi.person_id IS NULL"
+        parameters: List[object] = []
+        if person_id is not None:
+            identity_clause = "fi.person_id = ?"
+            parameters.append(person_id)
+        parameters.append(project_id)
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT ph.decision, COUNT(DISTINCT ph.id) AS total
+                FROM face_instances AS fi
+                JOIN photos AS ph ON ph.id = fi.photo_id
+                WHERE {0} AND ph.project_id = ?
+                GROUP BY ph.decision
+                """.format(identity_clause),
+                parameters,
+            ).fetchall()
+            best = connection.execute(
+                """
+                SELECT COUNT(DISTINCT ph.id) AS total
+                FROM face_instances AS fi
+                JOIN photos AS ph ON ph.id = fi.photo_id
+                WHERE {0} AND ph.project_id = ? AND ph.is_best = 1
+                """.format(identity_clause),
+                parameters,
+            ).fetchone()
+        for row in rows:
+            counts[str(row["decision"])] = int(row["total"])
+            counts[PhotoView.ALL.value] += int(row["total"])
+        counts[PhotoView.BEST.value] = int(best["total"])
+        return counts
+
+    def person_ids_for_photo(self, photo_id: int) -> Tuple[int, ...]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT DISTINCT person_id FROM face_instances
+                WHERE photo_id = ? AND person_id IS NOT NULL
+                ORDER BY person_id
+                """,
+                (photo_id,),
+            ).fetchall()
+        return tuple(int(row["person_id"]) for row in rows)
+
+    def face_indices_for_person(
+        self,
+        person_id: int,
+        photo_ids: Optional[Sequence[int]] = None,
+    ) -> Dict[int, Tuple[int, ...]]:
+        """Return the detected face numbers assigned to one person by photograph."""
+
+        parameters: List[object] = [person_id]
+        photo_clause = ""
+        if photo_ids is not None:
+            normalized_ids = tuple(dict.fromkeys(int(photo_id) for photo_id in photo_ids))
+            if not normalized_ids:
+                return {}
+            photo_clause = " AND photo_id IN ({0})".format(
+                ",".join("?" for _ in normalized_ids)
+            )
+            parameters.extend(normalized_ids)
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT photo_id, face_index FROM face_instances
+                WHERE person_id = ?{0}
+                ORDER BY photo_id, face_index
+                """.format(photo_clause),
+                parameters,
+            ).fetchall()
+        grouped: Dict[int, List[int]] = {}
+        for row in rows:
+            grouped.setdefault(int(row["photo_id"]), []).append(int(row["face_index"]))
+        return {photo_id: tuple(indices) for photo_id, indices in grouped.items()}
+
+    def people_for_photo(self, photo_id: int) -> List[Tuple[int, str]]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT DISTINCT persons.id, persons.display_name
+                FROM face_instances
+                JOIN persons ON persons.id = face_instances.person_id
+                WHERE face_instances.photo_id = ?
+                ORDER BY COALESCE(NULLIF(persons.display_name, ''),
+                                  printf('Person %08d', persons.id)) COLLATE NOCASE
+                """,
+                (photo_id,),
+            ).fetchall()
+        return [
+            (
+                int(row["id"]),
+                str(row["display_name"] or "").strip()
+                or "Person {0}".format(row["id"]),
+            )
+            for row in rows
+        ]
+
+    def reset_identity_data(self) -> Tuple[int, int]:
+        """Delete local biometric embeddings, identities, and correction constraints."""
+
+        with closing(self._connect()) as connection:
+            face_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) AS total FROM face_instances"
+                ).fetchone()["total"]
+            )
+            person_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) AS total FROM persons"
+                ).fetchone()["total"]
+            )
+            connection.execute("DELETE FROM face_instances")
+            connection.execute("DELETE FROM persons")
+            connection.execute("DELETE FROM identity_metadata")
+            connection.commit()
+        return person_count, face_count
+
+    def prepare_identity_regroup(self, grouping_version: str) -> bool:
+        """Clear obsolete unnamed automatic groups once per grouping version."""
+
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT value FROM identity_metadata WHERE key = 'grouping_version'"
+            ).fetchone()
+            if row is not None and row["value"] == grouping_version:
+                return False
+            connection.execute(
+                """
+                UPDATE face_instances SET
+                    person_id = NULL, assignment_source = 'unknown',
+                    assignment_confidence = NULL, updated_at = CURRENT_TIMESTAMP
+                WHERE assignment_source = 'automatic'
+                  AND person_id IN (
+                      SELECT id FROM persons
+                      WHERE NULLIF(TRIM(display_name), '') IS NULL
+                  )
+                """
+            )
+            connection.execute(
+                """
+                DELETE FROM persons
+                WHERE NULLIF(TRIM(display_name), '') IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM face_instances
+                      WHERE face_instances.person_id = persons.id
+                  )
+                """
+            )
+            connection.commit()
+        return True
+
+    def identity_regroup_needed(self, grouping_version: str) -> bool:
+        with closing(self._connect()) as connection:
+            has_faces = connection.execute(
+                "SELECT 1 FROM face_instances LIMIT 1"
+            ).fetchone()
+            if has_faces is None:
+                return False
+            row = connection.execute(
+                "SELECT value FROM identity_metadata WHERE key = 'grouping_version'"
+            ).fetchone()
+        return row is None or row["value"] != grouping_version
+
+    def finish_identity_regroup(self, grouping_version: str) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                """
+                INSERT INTO identity_metadata(key, value)
+                VALUES ('grouping_version', ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (grouping_version,),
+            )
+            connection.commit()
+
     def reset_automatic_groups(self, project_id: int) -> None:
         with closing(self._connect()) as connection:
             connection.execute(
@@ -1194,17 +1828,6 @@ class PhotoDatabase:
                 WHERE id = ?
                 """,
                 (group_id, score, reason, photo_id),
-            )
-            connection.commit()
-
-    def set_automatic_best(self, photo_id: int) -> None:
-        with closing(self._connect()) as connection:
-            connection.execute(
-                """
-                UPDATE photos SET is_best = 1, best_source = 'automatic'
-                WHERE id = ? AND best_source != 'manual'
-                """,
-                (photo_id,),
             )
             connection.commit()
 
@@ -1279,6 +1902,20 @@ class PhotoDatabase:
     @staticmethod
     def _hash_distance(left: str, right: str) -> int:
         return bin(int(left, 16) ^ int(right, 16)).count("1")
+
+    @staticmethod
+    def _bounds_iou(
+        left: Sequence[float], right: Sequence[float]
+    ) -> float:
+        left_x, left_y, left_width, left_height = left
+        right_x, right_y, right_width, right_height = right
+        x1 = max(left_x, right_x)
+        y1 = max(left_y, right_y)
+        x2 = min(left_x + left_width, right_x + right_width)
+        y2 = min(left_y + left_height, right_y + right_height)
+        intersection = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+        union = left_width * left_height + right_width * right_height - intersection
+        return intersection / union if union > 0.0 else 0.0
 
     @staticmethod
     def _legacy_asset_key(relative_path: str) -> str:

@@ -17,8 +17,16 @@ from photochoose.analysis_profiles import (
     get_analysis_profile,
 )
 from photochoose.database import PhotoDatabase
+from photochoose.identity_recognition import IdentityMatcher
 from photochoose.image_loader import ImageDecodeError, decode_analysis_bgr
-from photochoose.models import Decision, FaceEvidence, ObjectEvidence, Photo, PhotoView
+from photochoose.models import (
+    Decision,
+    FaceEvidence,
+    IdentityFaceEvidence,
+    ObjectEvidence,
+    Photo,
+    PhotoView,
+)
 from photochoose.object_models import GeneralSubjectAnalyzer
 from photochoose.vision_models import ModelSubjectAnalyzer
 
@@ -28,7 +36,6 @@ NEAR_DUPLICATE_DISTANCE = 8
 BURST_SIMILARITY_DISTANCE = 20
 BURST_GAP_SECONDS = 2.0
 GROUP_COMPARISON_WINDOW = 12
-MIN_BEST_HASH_DISTANCE = NEAR_DUPLICATE_DISTANCE + 1
 
 
 @dataclass(frozen=True)
@@ -57,6 +64,8 @@ class AnalysisResult:
     important_uncertain_eye_count: int = 0
     important_obscured_eye_count: int = 0
     subject_regions: Tuple[FaceEvidence, ...] = ()
+    identity_faces: Tuple[IdentityFaceEvidence, ...] = ()
+    identity_available: bool = False
     object_count: int = 0
     object_model: str = "none"
     primary_subject_focus_score: Optional[float] = None
@@ -149,6 +158,10 @@ class BaselineAnalyzer:
                 result.eye_focus_score,
                 result.subject_regions,
             )
+            if result.duplicate_of_id is not None:
+                self.database.copy_identity_faces(result.duplicate_of_id, photo.id)
+            elif result.identity_available:
+                self.database.replace_identity_faces(photo.id, result.identity_faces)
             self.database.apply_object_analysis(
                 photo.id,
                 result.object_count,
@@ -163,7 +176,8 @@ class BaselineAnalyzer:
             if progress is not None:
                 progress(completed, pending_count)
 
-        self._group_and_select_best(project_id, analyzed)
+        self._group_and_rank(project_id, analyzed)
+        IdentityMatcher(self.database).assign_unknown_faces()
         return self.database.counts(project_id)
 
     @staticmethod
@@ -330,6 +344,7 @@ class BaselineAnalyzer:
             important_uncertain_eye_count = subject_result.important_uncertain_eye_count
             important_obscured_eye_count = subject_result.important_obscured_eye_count
             subject_regions = subject_result.regions
+            identity_faces = subject_result.identity_faces
 
         object_result = self.object_analyzer.analyze(image)
 
@@ -386,6 +401,10 @@ class BaselineAnalyzer:
             important_uncertain_eye_count=important_uncertain_eye_count,
             important_obscured_eye_count=important_obscured_eye_count,
             subject_regions=subject_regions,
+            identity_faces=(identity_faces if subject_result is not None else ()),
+            identity_available=(
+                subject_result.identity_available if subject_result is not None else False
+            ),
             object_count=object_result.object_count,
             object_model=object_result.model_name,
             primary_subject_focus_score=(
@@ -456,7 +475,7 @@ class BaselineAnalyzer:
 
         return len(faces), eye_count, min(focus_scores) if focus_scores else None
 
-    def _group_and_select_best(
+    def _group_and_rank(
         self,
         project_id: int,
         analyzed: List[Tuple[Photo, AnalysisResult]],
@@ -572,14 +591,6 @@ class BaselineAnalyzer:
                             winner.filename,
                             score_gap,
                         )
-
-        project = self.database.get_project(project_id)
-        if project is not None:
-            self.database.select_automatic_best(
-                project_id,
-                project.best_count_per_group,
-                MIN_BEST_HASH_DISTANCE,
-            )
 
     @staticmethod
     def _capture_gap_seconds(left: Photo, right: Photo) -> Optional[float]:

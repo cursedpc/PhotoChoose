@@ -7,7 +7,11 @@ name = "photochoose"
 version = "0.1.6"
 description = "Local-first desktop photo culling for professional shoots"
 readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.11,<3.12"
+classifiers = [
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+]
 dependencies = [
     # Qt 6.10.3 currently fails platform-plugin discovery on the Intel macOS
     # development machine; keep the stable 6.9 line until that is resolved.
@@ -42,6 +46,13 @@ photochoose = "photochoose.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools]
+license-files = [
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "src/photochoose/model_assets/*_LICENSE",
+]
 
 [tool.setuptools.package-data]
 photochoose = ["branding/*", "model_assets/*"]
