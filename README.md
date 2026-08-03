@@ -175,7 +175,6 @@ TRON network.
 
 **USDT (TRC20):** `TPVz9S73eDc7qGNg18Pv8WMe4b1xw24TaL`
 
-[View the address on TRONSCAN](https://tronscan.org/#/address/TPVz9S73eDc7qGNg18Pv8WMe4b1xw24TaL).
 Send only USDT using the TRON (TRC20) network. Transfers made with another asset or network may be
 lost and cannot be recovered by the project.
 
