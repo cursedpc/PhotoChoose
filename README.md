@@ -168,16 +168,6 @@ Platform packaging instructions are available in
 [packaging/windows/README.md](packaging/windows/README.md) and
 [packaging/macos/README.md](packaging/macos/README.md).
 
-## Support PhotoChoose
-
-If PhotoChoose is useful to you, you can support its continued development with USDT on the
-TRON network.
-
-**USDT (TRC20):** `TPVz9S73eDc7qGNg18Pv8WMe4b1xw24TaL`
-
-Send only USDT using the TRON (TRC20) network. Transfers made with another asset or network may be
-lost and cannot be recovered by the project.
-
 ## License
 
 Except where another license is identified, PhotoChoose's original source code, documentation,
